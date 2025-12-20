@@ -1,0 +1,117 @@
+# K3s Multi-Cloud Cluster Configuration Example
+# Copy this file to terraform.tfvars and fill in your values
+
+###############################################################################
+# Global Configuration
+###############################################################################
+
+cluster_name = "k3s-multicloud"
+k3s_token    = "your-secure-random-token-here"  # Generate with: openssl rand -base64 48
+ssh_key_path = "~/.ssh/id_rsa.pub"
+
+###############################################################################
+# Cloud Provider Toggles
+###############################################################################
+
+enable_openstack = true
+enable_aws       = false  # Future support
+enable_gcp       = false  # Future support
+
+###############################################################################
+# OpenStack Configuration
+###############################################################################
+
+user_name              = "your-openstack-username"
+user_password          = "your-openstack-password"
+tenant_name            = "your-openstack-project"
+openstack_auth_url     = "https://your-openstack-endpoint:5000/v3"
+openstack_region       = "RegionOne"
+openstack_cacert_file  = "./os-trusted-cas"
+
+# Cluster sizing
+openstack_server_count = 3  # Control plane servers (1-5)
+openstack_agent_count  = 3  # Worker nodes
+
+# Instance flavors
+openstack_server_flavor  = "m1.medium"
+openstack_agent_flavor   = "m1.medium"
+openstack_bastion_flavor = "m1.small"
+
+# Network configuration
+openstack_network_cidr      = "192.168.255.0/24"
+openstack_dns_servers       = ["10.33.16.100", "8.8.8.8"]
+openstack_floating_ip_pool  = "ext_net"
+
+###############################################################################
+# Feature Flags
+###############################################################################
+
+enable_bastion       = true   # Set to false when using Tailscale for SSH
+enable_load_balancer = true   # Keep true for HA control plane
+
+###############################################################################
+# Tailscale VPN Configuration (Optional)
+###############################################################################
+
+enable_tailscale = false  # Set to true to enable Tailscale mesh VPN with ephemeral keys
+
+# Tailscale API Key (OAuth Client Secret)
+# Create at: https://login.tailscale.com/admin/settings/oauth
+# Required scopes: devices:write, auth_keys:write
+# The provider will auto-generate ephemeral auth keys per node
+tailscale_api_key = ""  # Example: "tskey-api-xxxxxxxxxxxxx-yyyyyyyyyyyyyyyyyy"
+
+# Your Tailscale tailnet identifier
+# Examples: "user@example.com" or "example.com"
+# Find at: Tailscale Admin Console → Settings → General → Tailnet name
+tailscale_tailnet = ""  # Example: "user@example.com"
+
+# Optional: Custom hostname prefix for MagicDNS (defaults to cluster_name)
+tailscale_hostname_prefix = ""  # Example: "k3s-prod"
+
+# Optional: Auth key expiry (seconds, default: 7200 = 2 hours)
+# Increase for slow deployments
+tailscale_key_expiry = 7200
+
+# Optional: IP update check interval (seconds, default: 300 = 5 minutes)
+# How often to check for Tailscale IP changes on ephemeral reconnects
+tailscale_ip_update_interval = 300
+
+###############################################################################
+# Security Configuration
+###############################################################################
+
+# TODO: Restrict these CIDR ranges for production deployments
+external_ssh_cidrs = ["0.0.0.0/0"]  # Allowed IPs for SSH access
+external_api_cidrs = ["0.0.0.0/0"]  # Allowed IPs for K8s API access
+
+###############################################################################
+# GPU Support Configuration
+###############################################################################
+# Enable NVIDIA GPU Operator for automatic GPU support
+# This will automatically deploy all GPU components including:
+# - Node Feature Discovery
+# - GPU Feature Discovery (node labeling)
+# - NVIDIA Container Toolkit
+# - NVIDIA Device Plugin
+# - NVIDIA DCGM Exporter (metrics)
+enable_nvidia_gpu_operator = false
+
+###############################################################################
+# ArgoCD GitOps Configuration
+###############################################################################
+# Enable ArgoCD for GitOps continuous deployment
+enable_argocd = true
+
+# ArgoCD admin password (optional)
+# Leave empty to auto-generate. Get password with:
+# kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+# Or set a bcrypt-hashed password. Generate with:
+# htpasswd -nbBC 10 "" 'yourpassword' | tr -d ':\n' | sed 's/$2y/$2a/'
+argocd_admin_password = ""
+
+# Git repository URL for ArgoCD applications
+# - GitHub: https://github.com/username/repository.git
+argocd_repo_url = ""
+
+
