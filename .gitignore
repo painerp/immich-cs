@@ -1,0 +1,7 @@
+.idea
+.terraform/
+*.tfstate*
+*.tfvars
+*.lock.hcl
+*.txt
+kubeconfig
