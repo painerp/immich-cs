@@ -1,0 +1,551 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: immich
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: immich-server
+  labels:
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: server
+  namespace: immich
+spec:
+  accessModes:
+    - "ReadWriteMany"
+  resources:
+    requests:
+      storage: "10Gi"
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: immich-machine-learning
+  labels:
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: machine-learning
+  namespace: immich
+spec:
+  accessModes:
+    - "ReadWriteMany"
+  resources:
+    requests:
+      storage: "10Gi"
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: immich-valkey
+  labels:
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: valkey
+  namespace: immich
+spec:
+  accessModes:
+    - "ReadWriteOnce"
+  resources:
+    requests:
+      storage: "1Gi"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: immich-database
+  labels:
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: database
+  namespace: immich
+spec:
+  instances: 3
+  storage:
+    size: 1Gi
+  imageName: ghcr.io/tensorchord/cloudnative-vectorchord:18.0-0.5.3
+  postgresql:
+    shared_preload_libraries:
+      - "vchord.so"
+  bootstrap:
+    initdb:
+      postInitApplicationSQL:
+        - CREATE EXTENSION vchord CASCADE;
+        - CREATE EXTENSION earthdistance CASCADE;
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-machine-learning
+  labels:
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: machine-learning
+    app.kubernetes.io/service: immich-machine-learning
+  namespace: immich
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3003
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/controller: main
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: machine-learning
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-server
+  labels:
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: server
+    app.kubernetes.io/service: immich-server
+  namespace: immich
+spec:
+  type: ClusterIP
+  ports:
+    - port: 2283
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: 8081
+      targetPort: metrics-api
+      protocol: TCP
+      name: metrics-api
+    - port: 8082
+      targetPort: metrics-ms
+      protocol: TCP
+      name: metrics-ms
+  selector:
+    app.kubernetes.io/controller: main
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: server
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-valkey
+  labels:
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/service: immich-valkey
+  namespace: immich
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      targetPort: redis
+      protocol: TCP
+      name: redis
+  selector:
+    app.kubernetes.io/controller: main
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: valkey
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: immich-machine-learning
+  labels:
+    app.kubernetes.io/controller: main
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: machine-learning
+  namespace: immich
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/controller: main
+      app.kubernetes.io/name: machine-learning
+      app.kubernetes.io/instance: immich
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/controller: main
+        app.kubernetes.io/instance: immich
+        app.kubernetes.io/name: machine-learning
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: default
+      automountServiceAccountToken: true
+      hostIPC: false
+      hostNetwork: false
+      hostPID: false
+      dnsPolicy: ClusterFirst
+      containers:
+        - env:
+          - name: DB_DATABASE_NAME
+            valueFrom:
+              secretKeyRef:
+                key: dbname
+                name: immich-database-app
+          - name: DB_HOSTNAME
+            valueFrom:
+              secretKeyRef:
+                key: host
+                name: immich-database-app
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: password
+                name: immich-database-app
+          - name: DB_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: user
+                name: immich-database-app
+          - name: HF_XET_CACHE
+            value: /cache/huggingface-xet
+          - name: IMMICH_MACHINE_LEARNING_URL
+            value: http://immich-machine-learning:3003
+          - name: MPLCONFIGDIR
+            value: /cache/matplotlib-config
+          - name: REDIS_HOSTNAME
+            value: immich-valkey
+          - name: TRANSFORMERS_CACHE
+            value: /cache
+          image: ghcr.io/immich-app/immich-machine-learning:v2-cuda
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+          name: main
+          ports:
+          - containerPort: 3003
+            name: http
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          startupProbe:
+            failureThreshold: 60
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+          volumeMounts:
+          - mountPath: /cache
+            name: cache
+      volumes:
+        - name: cache
+          persistentVolumeClaim:
+            claimName: immich-machine-learning
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: immich-server
+  labels:
+    app.kubernetes.io/controller: main
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: server
+  namespace: immich
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/controller: main
+      app.kubernetes.io/name: server
+      app.kubernetes.io/instance: immich
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/controller: main
+        app.kubernetes.io/instance: immich
+        app.kubernetes.io/name: server
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: default
+      automountServiceAccountToken: true
+      hostIPC: false
+      hostNetwork: false
+      hostPID: false
+      dnsPolicy: ClusterFirst
+      containers:
+        - env:
+          - name: DB_DATABASE_NAME
+            valueFrom:
+              secretKeyRef:
+                key: dbname
+                name: immich-database-app
+          - name: DB_HOSTNAME
+            valueFrom:
+              secretKeyRef:
+                key: host
+                name: immich-database-app
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: password
+                name: immich-database-app
+          - name: DB_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: user
+                name: immich-database-app
+          - name: IMMICH_MACHINE_LEARNING_URL
+            value: http://immich-machine-learning:3003
+          - name: IMMICH_TELEMETRY_INCLUDE
+            value: all
+          - name: REDIS_HOSTNAME
+            value: immich-valkey
+          image: ghcr.io/immich-app/immich-server:v2
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /api/server/ping
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+          name: main
+          ports:
+          - containerPort: 2283
+            name: http
+            protocol: TCP
+          - containerPort: 8081
+            name: metrics-api
+            protocol: TCP
+          - containerPort: 8082
+            name: metrics-ms
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /api/server/ping
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          startupProbe:
+            failureThreshold: 30
+            httpGet:
+              path: /api/server/ping
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+          volumeMounts:
+          - mountPath: /data
+            name: data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: immich-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: immich-valkey
+  labels:
+    app.kubernetes.io/controller: main
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: valkey
+  namespace: immich
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/controller: main
+      app.kubernetes.io/name: valkey
+      app.kubernetes.io/instance: immich
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/controller: main
+        app.kubernetes.io/instance: immich
+        app.kubernetes.io/name: valkey
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: default
+      automountServiceAccountToken: true
+      hostIPC: false
+      hostNetwork: false
+      hostPID: false
+      dnsPolicy: ClusterFirst
+      containers:
+        - env:
+          - name: DB_DATABASE_NAME
+            valueFrom:
+              secretKeyRef:
+                key: dbname
+                name: immich-database-app
+          - name: DB_HOSTNAME
+            valueFrom:
+              secretKeyRef:
+                key: host
+                name: immich-database-app
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: password
+                name: immich-database-app
+          - name: DB_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: user
+                name: immich-database-app
+          - name: IMMICH_MACHINE_LEARNING_URL
+            value: http://immich-machine-learning:3003
+          - name: REDIS_HOSTNAME
+            value: immich-valkey
+          image: docker.io/valkey/valkey:alpine
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+              - sh
+              - -c
+              - valkey-cli ping | grep PONG
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          name: main
+          ports:
+          - containerPort: 6379
+            name: redis
+            protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+              - sh
+              - -c
+              - valkey-cli ping | grep PONG
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          startupProbe:
+            exec:
+              command:
+              - sh
+              - -c
+              - valkey-cli ping | grep PONG
+            failureThreshold: 30
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+          - mountPath: /data
+            name: data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: immich-valkey
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: immich-server
+  labels:
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: server
+  namespace: immich
+spec:
+  rules:
+    - host: "10.32.7.54.sslip.io"
+      http:
+        paths:
+          - path: "/"
+            pathType: Prefix
+            backend:
+              service:
+                name: immich-server
+                port:
+                  number: 2283
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: immich-server
+  labels:
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: server
+    release: prometheus
+  namespace: immich
+spec:
+  jobLabel: "immich-server"
+  namespaceSelector:
+    matchNames:
+      - immich
+  selector:
+    matchLabels:
+      app.kubernetes.io/service: immich-server
+      app.kubernetes.io/name: server
+      app.kubernetes.io/instance: immich
+  endpoints:
+    - port: metrics-api
+      scheme: http
+    - port: metrics-ms
+      scheme: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prometheus-kube-prometheus-prometheus
+  labels:
+    app.kubernetes.io/instance: prometheus
+    app.kubernetes.io/name: prometheus
+  namespace: prometheus-system
+spec:
+  rules:
+    - host: "prometheus.10.32.7.54.sslip.io"
+      http:
+        paths:
+          - path: "/"
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus-kube-prometheus-prometheus
+                port:
+                  number: 9090
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prometheus-grafana
+  labels:
+    app.kubernetes.io/instance: prometheus
+    app.kubernetes.io/name: grafana
+  namespace: prometheus-system
+spec:
+  rules:
+    - host: "grafana.10.32.7.54.sslip.io"
+      http:
+        paths:
+          - path: "/"
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus-grafana
+                port:
+                  number: 80
