@@ -28,7 +28,30 @@ pub fn confirm_action(prompt: &str) -> Result<bool> {
     Ok(trimmed.eq_ignore_ascii_case("y"))
 }
 
+fn ensure_terraform_initialized(terraform_bin: &str, terraform_dir: &PathBuf) -> Result<()> {
+    let terraform_state_dir = terraform_dir.join(".terraform");
+    if !terraform_state_dir.exists() {
+        println!("--- .terraform directory not found, running init first...");
+        let init_status = Command::new(terraform_bin)
+            .args(&["init", "-input=false"])
+            .current_dir(terraform_dir)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+            .context("Failed to execute terraform init")?;
+
+        if !init_status.success() {
+            bail!("Terraform init failed with exit code: {:?}", init_status.code());
+        }
+        println!("--- Terraform init completed successfully\n");
+    }
+    Ok(())
+}
+
 fn run_terraform_command(terraform_bin: &str, terraform_dir: &PathBuf, args: &[&str]) -> Result<()> {
+    ensure_terraform_initialized(terraform_bin, terraform_dir)?;
+
     let status = Command::new(terraform_bin)
         .args(args)
         .current_dir(terraform_dir)
@@ -46,6 +69,8 @@ fn run_terraform_command(terraform_bin: &str, terraform_dir: &PathBuf, args: &[&
 }
 
 fn get_terraform_outputs(terraform_bin: &str, terraform_dir: &PathBuf) -> Result<serde_json::Value> {
+    ensure_terraform_initialized(terraform_bin, terraform_dir)?;
+
     let output = Command::new(terraform_bin)
         .args(&["output", "-json"])
         .current_dir(terraform_dir)
