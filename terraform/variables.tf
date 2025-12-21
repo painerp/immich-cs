@@ -222,7 +222,7 @@ variable "enable_nvidia_gpu_operator" {
 variable "enable_argocd" {
   description = "Whether to deploy ArgoCD for GitOps continuous deployment"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "argocd_admin_password" {
@@ -243,4 +243,10 @@ variable "argocd_repo_url" {
   EOT
   type        = string
   default     = ""
+}
+
+variable "argocd_repo_branch" {
+  description = "Git branch to track for ArgoCD applications"
+  type        = string
+  default     = "main"
 }

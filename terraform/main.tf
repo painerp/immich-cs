@@ -62,6 +62,7 @@ module "openstack_k3s" {
   tailscale_hostname_prefix    = var.tailscale_hostname_prefix
   tailscale_key_expiry         = var.tailscale_key_expiry
   tailscale_ip_update_interval = var.tailscale_ip_update_interval
+
   # GPU support
   enable_nvidia_gpu_operator = var.enable_nvidia_gpu_operator
 
@@ -69,6 +70,7 @@ module "openstack_k3s" {
   enable_argocd         = var.enable_argocd
   argocd_admin_password = var.argocd_admin_password
   argocd_repo_url       = var.argocd_repo_url
+  argocd_repo_branch    = var.argocd_repo_branch
 
   # Tags
   tags = merge(local.common_tags, {

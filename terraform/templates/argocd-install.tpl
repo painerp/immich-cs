@@ -114,7 +114,7 @@ spec:
   project: default
   source:
     repoURL: ${repo_url}
-    targetRevision: HEAD
+    targetRevision: ${repo_branch}
     path: apps
     directory:
       recurse: true

@@ -82,6 +82,7 @@ locals {
   argocd_install_script = local.enable_argocd_with_tailscale ? templatefile("${path.root}/templates/argocd-install.tpl", {
     total_nodes    = local.total_nodes
     repo_url       = var.argocd_repo_url
+    repo_branch    = var.argocd_repo_branch
     admin_password = var.argocd_admin_password
   }) : ""
 

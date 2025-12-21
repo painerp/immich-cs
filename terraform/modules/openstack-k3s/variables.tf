@@ -192,7 +192,7 @@ variable "cinder_default_reclaim_policy" {
 variable "enable_nvidia_gpu_operator" {
   description = "Whether to deploy NVIDIA GPU Operator for automatic GPU support"
   type        = bool
-  default     = true
+  default     = false
 }
 
 ###############################################################################
@@ -202,7 +202,7 @@ variable "enable_nvidia_gpu_operator" {
 variable "enable_argocd" {
   description = "Whether to deploy ArgoCD for GitOps continuous deployment"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "argocd_admin_password" {
@@ -216,5 +216,11 @@ variable "argocd_repo_url" {
   description = "Git repository URL for ArgoCD applications GitHub URL"
   type        = string
   default     = ""
+}
+
+variable "argocd_repo_branch" {
+  description = "Git repository branch for ArgoCD applications"
+  type        = string
+  default     = "main"
 }
 
