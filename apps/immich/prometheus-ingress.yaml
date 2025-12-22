@@ -1,0 +1,41 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prometheus-kube-prometheus-prometheus
+  labels:
+    app.kubernetes.io/instance: prometheus
+    app.kubernetes.io/name: prometheus
+  namespace: prometheus-system
+spec:
+  rules:
+    - host: "prometheus.10.32.7.54.sslip.io"
+      http:
+        paths:
+          - path: "/"
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus-kube-prometheus-prometheus
+                port:
+                  number: 9090
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prometheus-grafana
+  labels:
+    app.kubernetes.io/instance: prometheus
+    app.kubernetes.io/name: grafana
+  namespace: prometheus-system
+spec:
+  rules:
+    - host: "grafana.10.32.7.54.sslip.io"
+      http:
+        paths:
+          - path: "/"
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus-grafana
+                port:
+                  number: 80

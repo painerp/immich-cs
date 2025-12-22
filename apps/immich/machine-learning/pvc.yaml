@@ -1,0 +1,15 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: immich-machine-learning
+  labels:
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: machine-learning
+  namespace: immich
+spec:
+  storageClassName: csi-cinder-retain
+  accessModes:
+    - "ReadWriteMany"
+  resources:
+    requests:
+      storage: "10Gi"
