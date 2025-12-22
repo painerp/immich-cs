@@ -1,26 +1,29 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: nginx
+  name: cnpg
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
   project: default
   source:
-    repoURL: https://github.com/painerp/immich-cs.git
-    targetRevision: HEAD
-    path: apps/nginx
+    repoURL: https://cloudnative-pg.github.io/charts
+    targetRevision: 0.27.0
+    chart: cloudnative-pg
   destination:
     server: https://kubernetes.default.svc
-    namespace: default
+    namespace: cnpg-system
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
       allowEmpty: false
     syncOptions:
-    - CreateNamespace=true
+      - CreateNamespace=true
+      - ServerSideApply=true
     retry:
       limit: 5
       backoff:

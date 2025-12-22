@@ -18,7 +18,7 @@ timeout 300 bash -c 'until kubectl get nodes &>/dev/null; do sleep 5; done' || {
 }
 
 log "Waiting for all nodes to be Ready..."
-timeout 600 bash -c 'until [ $(kubectl get nodes --no-headers 2>/dev/null | grep -v NotReady | wc -l) -eq ${total_nodes} ]; do sleep 10; done' || {
+timeout 1200 bash -c 'until [ $(kubectl get nodes --no-headers 2>/dev/null | grep -v NotReady | wc -l) -eq ${total_nodes} ]; do sleep 10; done' || {
     log "WARNING: Not all nodes became ready in time, continuing anyway..."
 }
 
@@ -115,7 +115,7 @@ spec:
   source:
     repoURL: ${repo_url}
     targetRevision: ${repo_branch}
-    path: apps
+    path: apps/root
     directory:
       recurse: true
       jsonnet: {}

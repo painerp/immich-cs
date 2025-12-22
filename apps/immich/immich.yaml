@@ -13,6 +13,7 @@ metadata:
     app.kubernetes.io/name: server
   namespace: immich
 spec:
+  storageClassName: csi-cinder-retain
   accessModes:
     - "ReadWriteMany"
   resources:
@@ -28,6 +29,7 @@ metadata:
     app.kubernetes.io/name: machine-learning
   namespace: immich
 spec:
+  storageClassName: csi-cinder-retain
   accessModes:
     - "ReadWriteMany"
   resources:
@@ -43,6 +45,7 @@ metadata:
     app.kubernetes.io/name: valkey
   namespace: immich
 spec:
+  storageClassName: csi-cinder-delete
   accessModes:
     - "ReadWriteOnce"
   resources:
@@ -102,12 +105,29 @@ metadata:
     app.kubernetes.io/service: immich-server
   namespace: immich
 spec:
-  type: ClusterIP
+  type: LoadBalancer
   ports:
-    - port: 2283
-      targetPort: http
+    - port: 80
+      targetPort: 2283
       protocol: TCP
       name: http
+  selector:
+    app.kubernetes.io/controller: main
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: server
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-server-metrics
+  labels:
+    app.kubernetes.io/instance: immich
+    app.kubernetes.io/name: server
+    app.kubernetes.io/service: immich-server
+  namespace: immich
+spec:
+  type: ClusterIP
+  ports:
     - port: 8081
       targetPort: metrics-api
       protocol: TCP
@@ -461,27 +481,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: immich-valkey
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: immich-server
-  labels:
-    app.kubernetes.io/instance: immich
-    app.kubernetes.io/name: server
-  namespace: immich
-spec:
-  rules:
-    - host: "10.32.7.54.sslip.io"
-      http:
-        paths:
-          - path: "/"
-            pathType: Prefix
-            backend:
-              service:
-                name: immich-server
-                port:
-                  number: 2283
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
