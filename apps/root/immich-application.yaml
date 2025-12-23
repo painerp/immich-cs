@@ -11,8 +11,10 @@ spec:
   project: default
   source:
     repoURL: https://github.com/painerp/immich-cs.git
-    targetRevision: immich-testing
+    targetRevision: HEAD
     path: apps/immich
+    directory:
+      recurse: true
   destination:
     server: https://kubernetes.default.svc
     namespace: default
