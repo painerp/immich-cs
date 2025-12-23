@@ -1,16 +1,20 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: nginx
+  name: immich
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   project: default
   source:
     repoURL: https://github.com/painerp/immich-cs.git
     targetRevision: HEAD
-    path: apps/nginx
+    path: apps/immich
+    directory:
+      recurse: true
   destination:
     server: https://kubernetes.default.svc
     namespace: default
@@ -21,6 +25,8 @@ spec:
       allowEmpty: false
     syncOptions:
     - CreateNamespace=true
+    - SkipDryRunOnMissingResource=true
+    - ServerSideApply=true
     retry:
       limit: 5
       backoff:
