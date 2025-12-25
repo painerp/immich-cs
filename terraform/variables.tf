@@ -208,6 +208,38 @@ variable "openstack_lb_provider" {
 }
 
 ###############################################################################
+# Longhorn Distributed Storage Configuration
+###############################################################################
+variable "enable_longhorn" {
+  description = "Whether to deploy Longhorn distributed storage system for ReadWriteMany volumes"
+  type        = bool
+  default     = true
+}
+
+variable "longhorn_storage_size" {
+  description = "Size of dedicated Cinder volume for Longhorn storage on each agent node (in GiB)"
+  type        = number
+  default     = 50
+}
+
+variable "longhorn_replica_count" {
+  description = "Default number of replicas for Longhorn volumes (should match agent count for best HA)"
+  type        = number
+  default     = 3
+}
+
+variable "force_recreate_volumes" {
+  description = <<-EOT
+    Force recreation of Longhorn Cinder volumes.
+    - false (default): Reuse existing volumes if found, preserving data across cluster redeployments
+    - true: Destroy and recreate volumes, losing all data
+    Only set to true if you want to start fresh or change volume size.
+  EOT
+  type        = bool
+  default     = false
+}
+
+###############################################################################
 # GPU Support Configuration
 ###############################################################################
 variable "enable_nvidia_gpu_operator" {

@@ -27,6 +27,23 @@ helm repo add nvidia https://helm.ngc.nvidia.com/nvidia >> "$LOG_FILE" 2>&1
 helm repo update >> "$LOG_FILE" 2>&1
 
 log "Installing NVIDIA GPU Operator..."
+kubectl create namespace gpu-operator || true
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: time-slicing-config
+  namespace: gpu-operator
+data:
+  any: |-
+    version: v1
+    sharing:
+      timeSlicing:
+        resources:
+          - name: nvidia.com/gpu
+            replicas: 4
+EOF
+
 helm install --wait gpu-operator-1 \
   -n gpu-operator --create-namespace \
   nvidia/gpu-operator \
@@ -39,6 +56,8 @@ helm install --wait gpu-operator-1 \
   --set toolkit.env[2].value=nvidia \
   --set toolkit.env[3].name=CONTAINERD_SET_AS_DEFAULT \
   --set-string toolkit.env[3].value=true \
+  --set devicePlugin.config.name=time-slicing-config \
+  --set devicePlugin.config.default=any \
   --timeout 20m >> "$LOG_FILE" 2>&1 || {
     log "ERROR: GPU Operator installation failed"
     log "Checking operator logs..."
@@ -47,7 +66,7 @@ helm install --wait gpu-operator-1 \
 }
 
 log "Waiting for GPU Operator pods to be ready..."
-timeout 600 bash -c 'until [ $(kubectl get pods -n gpu-operator --no-headers 2>/dev/null | grep -v Completed | grep -v Running | wc -l) -eq 0 ]; do sleep 10; done' || {
+timeout 900 bash -c 'until [ $(kubectl get pods -n gpu-operator --no-headers 2>/dev/null | grep -v Completed | grep -v Running | wc -l) -eq 0 ]; do sleep 10; done' || {
     log "WARNING: Not all GPU Operator pods became ready in time"
     kubectl get pods -n gpu-operator >> "$LOG_FILE" 2>&1
 }

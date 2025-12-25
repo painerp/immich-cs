@@ -98,6 +98,31 @@ external_api_cidrs = ["0.0.0.0/0"]  # Allowed IPs for K8s API access
 enable_nvidia_gpu_operator = false
 
 ###############################################################################
+# Longhorn Distributed Storage Configuration
+###############################################################################
+# Enable Longhorn for ReadWriteMany volume support (multi-pod access)
+# Longhorn provides distributed block storage with replication across nodes
+enable_longhorn = true
+
+# Size of dedicated Cinder volume attached to each agent for Longhorn storage (in GiB)
+# Total storage = longhorn_storage_size * agent_count
+# Example: 50 GiB * 3 agents = 150 GiB raw storage
+longhorn_storage_size = 50
+
+# Number of replicas for Longhorn volumes (recommended: match agent_count for full HA)
+# 3 replicas = data replicated across 3 nodes for high availability
+longhorn_replica_count = 3
+
+# Force recreation of Longhorn volumes
+# - false (default): Automatically reuse existing volumes if found (preserves data across redeployments)
+# - true: Destroy and recreate volumes (all Longhorn data will be lost!)
+# Set to true only if:
+#   - You want to start completely fresh
+#   - You need to change volume size (requires recreating volumes)
+#   - Volumes are corrupted and need replacement
+force_recreate_volumes = false
+
+###############################################################################
 # ArgoCD GitOps Configuration
 ###############################################################################
 # Enable ArgoCD for GitOps continuous deployment
