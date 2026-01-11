@@ -113,15 +113,6 @@ longhorn_storage_size = 50
 # 3 replicas = data replicated across 3 nodes for high availability
 longhorn_replica_count = 3
 
-# Force recreation of Longhorn volumes
-# - false (default): Automatically reuse existing volumes if found (preserves data across redeployments)
-# - true: Destroy and recreate volumes (all Longhorn data will be lost!)
-# Set to true only if:
-#   - You want to start completely fresh
-#   - You need to change volume size (requires recreating volumes)
-#   - Volumes are corrupted and need replacement
-force_recreate_volumes = false
-
 ###############################################################################
 # ArgoCD GitOps Configuration
 ###############################################################################

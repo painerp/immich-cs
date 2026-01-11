@@ -228,17 +228,6 @@ variable "longhorn_replica_count" {
   default     = 3
 }
 
-variable "force_recreate_volumes" {
-  description = <<-EOT
-    Force recreation of Longhorn Cinder volumes.
-    - false (default): Reuse existing volumes if found, preserving data across cluster redeployments
-    - true: Destroy and recreate volumes, losing all data
-    Only set to true if you want to start fresh or change volume size.
-  EOT
-  type        = bool
-  default     = false
-}
-
 ###############################################################################
 # GPU Support Configuration
 ###############################################################################

@@ -67,7 +67,6 @@ module "openstack_k3s" {
   enable_longhorn         = var.enable_longhorn
   longhorn_storage_size   = var.longhorn_storage_size
   longhorn_replica_count  = var.longhorn_replica_count
-  force_recreate_volumes  = var.force_recreate_volumes
 
   # GPU support
   enable_nvidia_gpu_operator = var.enable_nvidia_gpu_operator

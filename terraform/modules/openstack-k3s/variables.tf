@@ -215,12 +215,6 @@ variable "longhorn_replica_count" {
   }
 }
 
-variable "force_recreate_volumes" {
-  description = "Force recreation of Longhorn Cinder volumes"
-  type        = bool
-  default     = false
-}
-
 ###############################################################################
 # NVIDIA GPU Support Configuration
 ###############################################################################
