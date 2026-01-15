@@ -11,7 +11,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/painerp/immich-cs.git
-    targetRevision: gpu-slicing
+    targetRevision: HEAD
     path: apps/immich
     directory:
       recurse: true

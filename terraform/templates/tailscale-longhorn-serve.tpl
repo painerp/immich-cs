@@ -37,6 +37,10 @@ LONGHORN_CLUSTER_IP=$(kubectl get svc -n longhorn-system longhorn-frontend -o js
 log "Longhorn frontend service cluster IP: $LONGHORN_CLUSTER_IP"
 
 log "Configuring Tailscale Serve to expose Longhorn UI..."
+tailscale serve --service=svc:longhorn --http=80 "http://$LONGHORN_CLUSTER_IP:80" >> "$LOG_FILE" 2>&1 || {
+    log "ERROR: Failed to configure Tailscale Serve"
+    exit 1
+}
 tailscale serve --service=svc:longhorn --https=443 "http://$LONGHORN_CLUSTER_IP:80" >> "$LOG_FILE" 2>&1 || {
     log "ERROR: Failed to configure Tailscale Serve"
     exit 1

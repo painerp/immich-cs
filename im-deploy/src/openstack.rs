@@ -147,29 +147,10 @@ pub struct OpenStackClient {
     client: Client,
     auth_token: String,
     neutron_endpoint: String,
-    octavia_endpoint: String,
-    cinder_endpoint: String,
+    octavia_endpoint: String
 }
 
 impl OpenStackClient {
-    fn find_cinder_endpoint(catalog: &[CatalogEntry], project_id: &str, auth_url: &str) -> String {
-        println!("  -> Searching for Cinder endpoint in service catalog...");
-
-        for service_type in &["volumev3", "block-storage", "volume"] {
-            if let Some(entry) = catalog.iter().find(|e| &e.service_type == service_type) {
-                println!("     Found service type: {}", service_type);
-                if let Some(endpoint) = entry.endpoints.iter().find(|e| e.interface == "public") {
-                    println!("  -> Using Cinder endpoint from catalog: {}", endpoint.url);
-                    return endpoint.url.clone();
-                }
-            }
-        }
-
-        // Fallback to constructed endpoint
-        let fallback = auth_url.replace(":5000/v3", &format!(":8776/v3/{}", project_id));
-        println!("  -> Service catalog lookup failed, using fallback: {}", fallback);
-        fallback
-    }
 
     pub fn new(
         auth_url: &str,
@@ -251,16 +232,8 @@ impl OpenStackClient {
             .json()
             .context("Failed to parse authentication response")?;
 
-        let project_id = token_data.token.project
-            .as_ref()
-            .map(|p| p.id.as_str())
-            .context("No project ID in token response")?;
-
-        println!("  -> Project ID: {}", project_id);
-
         let neutron_endpoint = auth_url.replace(":5000/v3", ":9696/v2.0");
         let octavia_endpoint = auth_url.replace(":5000/v3", ":9876/v2.0");
-        let cinder_endpoint = Self::find_cinder_endpoint(&token_data.token.catalog, project_id, auth_url);
 
         println!("  -> Authenticated successfully\n");
 
@@ -269,7 +242,6 @@ impl OpenStackClient {
             auth_token,
             neutron_endpoint,
             octavia_endpoint,
-            cinder_endpoint,
         })
     }
 
@@ -893,38 +865,5 @@ impl OpenStackClient {
         }
 
         Ok(())
-    }
-
-    pub fn list_volumes_by_name(&self, name_pattern: &str) -> Result<Vec<Volume>> {
-        let url = format!("{}/volumes/detail", self.cinder_endpoint);
-
-        let response = self
-            .client
-            .get(&url)
-            .header("X-Auth-Token", &self.auth_token)
-            .send()
-            .context("Failed to list volumes")?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().unwrap_or_default();
-            return Err(anyhow::anyhow!(
-                "Failed to list volumes ({}): {}",
-                status,
-                body
-            ));
-        }
-
-        let volumes_response: VolumesResponse = response
-            .json()
-            .context("Failed to parse volumes response")?;
-
-        let matching_volumes: Vec<Volume> = volumes_response
-            .volumes
-            .into_iter()
-            .filter(|v| v.name.contains(name_pattern))
-            .collect();
-
-        Ok(matching_volumes)
     }
 }

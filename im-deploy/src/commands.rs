@@ -12,21 +12,22 @@ use crate::openstack::OpenStackClient;
 use crate::tailscale;
 use crate::tui::{run_cloud_provider_selector, run_server_selector, CloudProvider, ServerInfo};
 
-pub fn confirm_action(prompt: &str) -> Result<bool> {
-    print!("{} (y/N): ", prompt);
+pub fn confirm_action(prompt: &str, default_yes: bool) -> Result<bool> {
+    let suffix = if default_yes { "(Y/n)" } else { "(y/N)" };
+    print!("{} {}: ", prompt, suffix);
     io::stdout().flush()?;
 
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
 
-    // Default to "no" if empty (just Enter pressed)
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return Ok(false);
+        return Ok(default_yes);
     }
 
     Ok(trimmed.eq_ignore_ascii_case("y"))
 }
+
 
 fn ensure_terraform_initialized(terraform_bin: &str, terraform_dir: &PathBuf) -> Result<()> {
     let terraform_state_dir = terraform_dir.join(".terraform");
@@ -187,140 +188,15 @@ fn extract_cloud_providers(terraform_bin: &str, terraform_dir: &PathBuf) -> Resu
     Ok(cloud_providers)
 }
 
-fn check_and_import_longhorn_volumes(
-    config: &Config,
-    auto_confirm: bool,
-) -> Result<()> {
-    println!("Checking for existing Longhorn volumes...\n");
-
-    let os_config = match &config.openstack {
-        Some(cfg) => cfg,
-        None => {
-            println!("  OpenStack credentials not available, skipping volume import check.\n");
-            return Ok(());
-        }
-    };
-
-    let cluster_name = &config.cluster_name;
-
-    let os_client = match OpenStackClient::new(
-        &os_config.auth_url,
-        &os_config.username,
-        &os_config.password,
-        &os_config.project_name,
-        os_config.cacert_file.as_deref(),
-        os_config.insecure,
-    ) {
-        Ok(client) => client,
-        Err(e) => {
-            println!("  Warning: Could not connect to OpenStack: {}", e);
-            println!("  Skipping volume import check.\n");
-            return Ok(());
-        }
-    };
-
-    let volume_pattern = format!("{}-openstack-agent-", cluster_name);
-    let volumes = match os_client.list_volumes_by_name(&volume_pattern) {
-        Ok(vols) => vols,
-        Err(e) => {
-            println!("  Warning: Could not list volumes: {}", e);
-            println!("  Skipping volume import check.\n");
-            return Ok(());
-        }
-    };
-
-    let longhorn_volumes: Vec<_> = volumes
-        .into_iter()
-        .filter(|v| v.name.contains("-longhorn"))
-        .collect();
-
-    if longhorn_volumes.is_empty() {
-        println!("  No existing Longhorn volumes found.\n");
-        return Ok(());
-    }
-
-    println!("  Found {} existing Longhorn volume(s):", longhorn_volumes.len());
-    for vol in &longhorn_volumes {
-        println!("    - {} ({} GiB, status: {})", vol.name, vol.size, vol.status);
-    }
-    println!();
-
-    let should_import = if auto_confirm {
-        false
-    } else {
-        confirm_action("Would you like to import these volumes to preserve existing data?")?
-    };
-
-    if !should_import {
-        println!("  Skipping volume import. Terraform will attempt to create new volumes.\n");
-        return Ok(());
-    }
-
-    println!("\nImporting volumes into Terraform state...\n");
-
-    ensure_terraform_initialized(&config.terraform_bin, &config.terraform_dir)?;
-
-    let mut imported_count = 0;
-    let mut failed_count = 0;
-
-    for vol in &longhorn_volumes {
-        let agent_index = vol.name
-            .rsplit_once("-agent-")
-            .and_then(|(_, suffix)| suffix.split('-').next())
-            .and_then(|s| s.parse::<usize>().ok());
-
-        if agent_index.is_none() {
-            println!("  Warning: Could not parse agent index from volume name: {}", vol.name);
-            failed_count += 1;
-            continue;
-        }
-
-        let index = agent_index.unwrap();
-        let resource_addr = format!(
-            "module.openstack_k3s[0].openstack_blockstorage_volume_v3.agent_longhorn_storage[{}]",
-            index
-        );
-
-        print!("  Importing {} -> {}... ", vol.name, resource_addr);
-        io::stdout().flush()?;
-
-        let status = Command::new(&config.terraform_bin)
-            .args(&["import", &resource_addr, &vol.id])
-            .current_dir(&config.terraform_dir)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .context("Failed to execute terraform import")?;
-
-        if status.success() {
-            println!("✓");
-            imported_count += 1;
-        } else {
-            println!("✗ (may already be in state)");
-            failed_count += 1;
-        }
-    }
-
-    println!();
-    println!("Import complete: {} succeeded, {} failed", imported_count, failed_count);
-    if imported_count > 0 {
-        println!("Existing Longhorn data will be preserved!\n");
-    }
-
-    Ok(())
-}
-
 pub fn cmd_deploy(config: &Config, auto_confirm: bool) -> Result<()> {
     println!("Terraform directory: {}", config.terraform_dir.display());
     println!("Using binary: {}", config.terraform_bin);
     println!();
 
-    if !auto_confirm && !confirm_action("Are you sure you want to deploy the cluster?")? {
+    if !auto_confirm && !confirm_action("Are you sure you want to deploy the cluster?", false)? {
         println!("Deploy cancelled.");
         return Ok(());
     }
-
-    check_and_import_longhorn_volumes(config, auto_confirm)?;
 
     println!("\nRunning terraform apply...\n");
 
@@ -342,13 +218,7 @@ pub fn cmd_deploy(config: &Config, auto_confirm: bool) -> Result<()> {
         println!("Skipped cluster monitoring (--yes flag)...\n");
         false
     } else {
-        print!("Would you like to monitor cluster formation? (y/n): ");
-        io::stdout().flush()?;
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-
-        input.trim().eq_ignore_ascii_case("y")
+        confirm_action("Would you like to monitor cluster formation?", true)?
     };
 
     if should_monitor {
@@ -381,7 +251,7 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
     println!("WARNING: This will destroy all cluster resources!");
     println!();
 
-    if !auto_confirm && !confirm_action("Are you sure you want to destroy the cluster?")? {
+    if !auto_confirm && !confirm_action("Are you sure you want to destroy the cluster?", false)? {
         println!("Destroy cancelled.");
         return Ok(());
     }
@@ -393,7 +263,7 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
         // Verify Tailscale connection before proceeding
         if let Err(e) = tailscale::verify_tailscale_connection() {
             eprintln!("Tailscale verification failed: {}", e);
-            if !auto_confirm && !confirm_action("Continue without Tailscale cleanup?")? {
+            if !auto_confirm && !confirm_action("Continue without Tailscale cleanup?", false)? {
                 println!("Destroy cancelled.");
                 return Ok(());
             }
@@ -480,7 +350,7 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
                             eprintln!("         You may need to manually delete LBs from OpenStack dashboard and retry.");
                             eprintln!();
 
-                        if !confirm_action("Terraform destroy may block. Continue anyway?")? {
+                        if !confirm_action("Terraform destroy may block. Continue anyway?", false)? {
                             println!("Destroy cancelled. Please clean up load balancers manually and retry.");
                             return Ok(());
                         }
@@ -491,7 +361,7 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
                     eprintln!("         Pre-destroy cleanup skipped. Terraform destroy may block!");
                     eprintln!();
 
-                    if !confirm_action("Terraform destroy may block without cleanup. Continue anyway?")? {
+                    if !confirm_action("Terraform destroy may block without cleanup. Continue anyway?", false)? {
                         println!("Destroy cancelled.");
                         return Ok(());
                     }
@@ -507,38 +377,7 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
         println!("\n=== Step 2: OpenStack pre-cleanup skipped (credentials not available) ===\n");
     }
 
-    // Step 4: Ask about Longhorn volumes
-    println!("\n=== Longhorn Storage Volumes ===");
-    println!("Do you want to DELETE the Longhorn storage volumes?");
-    println!("  - Choose 'yes' to permanently delete all data (full cleanup)");
-    println!("  - Choose 'no' to preserve volumes for later reuse");
-    println!();
-
-    let delete_longhorn_volumes = confirm_action("Delete Longhorn volumes?")?;
-
-    if delete_longhorn_volumes {
-        println!("Longhorn volumes will be DELETED during destroy.\n");
-    } else {
-        println!("Longhorn volumes will be PRESERVED (excluded from destroy).\n");
-        println!("Removing Longhorn volumes from Terraform state...");
-
-        // Remove volume attachments from state first (they depend on the instances)
-        let _ = Command::new(&config.terraform_bin)
-            .args(&["state", "rm", "module.openstack_k3s[0].openstack_compute_volume_attach_v2.agent_longhorn_attach"])
-            .current_dir(&config.terraform_dir)
-            .output();
-
-        // Remove the volumes from state so they won't be destroyed
-        let _ = Command::new(&config.terraform_bin)
-            .args(&["state", "rm", "module.openstack_k3s[0].openstack_blockstorage_volume_v3.agent_longhorn_storage"])
-            .current_dir(&config.terraform_dir)
-            .output();
-
-        println!("  -> Longhorn volumes removed from Terraform state");
-        println!("  -> These volumes will remain in OpenStack after destroy\n");
-    }
-
-    // Step 5: Run terraform destroy
+    // Step 4: Run terraform destroy
     println!("=== Step 3: Running terraform destroy ===\n");
 
     let destroy_start = Instant::now();
@@ -583,14 +422,6 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
     }
 
     println!("\nCluster destroyed!");
-
-    if !delete_longhorn_volumes {
-        println!("\n=== Longhorn Volumes Preserved ===");
-        println!("The following Longhorn volumes have been preserved in OpenStack:");
-        println!("  - k3s-immich-multicloud-openstack-agent-*-longhorn");
-        println!();
-    }
-
     Ok(())
 }
 
