@@ -12,6 +12,7 @@ allowVolumeExpansion: true
 reclaimPolicy: ${reclaimPolicy}
 parameters:
   availability: nova
+  type: CloudServ11-shared-volume
   %{~ for k, v in parameters ~}
   ${k}: ${v}
   %{~ endfor ~}
