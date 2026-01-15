@@ -4,10 +4,27 @@ use serde::Deserialize;
 use std::process::Command;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Device {
     id: String,
+    #[serde(default)]
     name: String,
+    #[serde(default)]
+    hostname: String,
+    #[serde(default)]
     tags: Vec<String>,
+}
+
+impl Device {
+    fn display_name(&self) -> &str {
+        if !self.name.is_empty() {
+            &self.name
+        } else if !self.hostname.is_empty() {
+            &self.hostname
+        } else {
+            &self.id
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,9 +73,20 @@ pub fn cleanup_devices_by_tag(api_key: &str, tailnet: &str, cluster_tag: &str) -
         ));
     }
 
-    let devices_response: DevicesResponse = response
-        .json()
-        .context("Failed to parse Tailscale devices response")?;
+    // Get response text first for better error handling
+    let response_text = response
+        .text()
+        .context("Failed to read Tailscale API response")?;
+
+    // Try to parse as JSON
+    let devices_response: DevicesResponse = serde_json::from_str(&response_text)
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to parse Tailscale devices response: {}\nResponse body: {}",
+                e,
+                response_text
+            )
+        })?;
 
     // Filter devices by cluster tag
     let matching_devices: Vec<&Device> = devices_response
@@ -74,7 +102,7 @@ pub fn cleanup_devices_by_tag(api_key: &str, tailnet: &str, cluster_tag: &str) -
 
     println!("  Found {} device(s) to delete:", matching_devices.len());
     for device in &matching_devices {
-        println!("    - {} ({})", device.name, device.id);
+        println!("    - {} ({})", device.display_name(), device.id);
     }
 
     // Delete each device
@@ -89,17 +117,17 @@ pub fn cleanup_devices_by_tag(api_key: &str, tailnet: &str, cluster_tag: &str) -
             .send()
         {
             Ok(resp) if resp.status().is_success() => {
-                println!("    -> Deleted device: {}", device.name);
+                println!("    -> Deleted device: {}", device.display_name());
                 deleted_count += 1;
             }
             Ok(resp) => {
                 let status = resp.status();
                 let body = resp.text().unwrap_or_default();
-                eprintln!("    ERROR: Failed to delete {}: {} - {}", device.name, status, body);
+                eprintln!("    ERROR: Failed to delete {}: {} - {}", device.display_name(), status, body);
                 failed_count += 1;
             }
             Err(e) => {
-                eprintln!("    ERROR: Failed to delete {}: {}", device.name, e);
+                eprintln!("    ERROR: Failed to delete {}: {}", device.display_name(), e);
                 failed_count += 1;
             }
         }

@@ -11,7 +11,27 @@ struct TokenResponse {
 #[derive(Debug, Deserialize)]
 struct Token {
     #[serde(rename = "catalog")]
-    _catalog: Vec<serde_json::Value>,
+    catalog: Vec<CatalogEntry>,
+    project: Option<ProjectInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CatalogEntry {
+    #[serde(rename = "type")]
+    service_type: String,
+    endpoints: Vec<Endpoint>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Endpoint {
+    url: String,
+    interface: String,
+    region: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProjectInfo {
+    id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -132,6 +152,25 @@ pub struct OpenStackClient {
 }
 
 impl OpenStackClient {
+    fn find_cinder_endpoint(catalog: &[CatalogEntry], project_id: &str, auth_url: &str) -> String {
+        println!("  -> Searching for Cinder endpoint in service catalog...");
+
+        for service_type in &["volumev3", "block-storage", "volume"] {
+            if let Some(entry) = catalog.iter().find(|e| &e.service_type == service_type) {
+                println!("     Found service type: {}", service_type);
+                if let Some(endpoint) = entry.endpoints.iter().find(|e| e.interface == "public") {
+                    println!("  -> Using Cinder endpoint from catalog: {}", endpoint.url);
+                    return endpoint.url.clone();
+                }
+            }
+        }
+
+        // Fallback to constructed endpoint
+        let fallback = auth_url.replace(":5000/v3", &format!(":8776/v3/{}", project_id));
+        println!("  -> Service catalog lookup failed, using fallback: {}", fallback);
+        fallback
+    }
+
     pub fn new(
         auth_url: &str,
         username: &str,
@@ -212,9 +251,16 @@ impl OpenStackClient {
             .json()
             .context("Failed to parse authentication response")?;
 
+        let project_id = token_data.token.project
+            .as_ref()
+            .map(|p| p.id.as_str())
+            .context("No project ID in token response")?;
+
+        println!("  -> Project ID: {}", project_id);
+
         let neutron_endpoint = auth_url.replace(":5000/v3", ":9696/v2.0");
         let octavia_endpoint = auth_url.replace(":5000/v3", ":9876/v2.0");
-        let cinder_endpoint = auth_url.replace(":5000/v3", ":8776/v3");
+        let cinder_endpoint = Self::find_cinder_endpoint(&token_data.token.catalog, project_id, auth_url);
 
         println!("  -> Authenticated successfully\n");
 
@@ -775,23 +821,17 @@ impl OpenStackClient {
             .json()
             .context("Failed to parse security groups response")?;
 
-        // Find security groups to delete:
-        // 1. K8s-created LB security groups (lb-sg-*)
-        // 2. Note: Terraform-managed groups ({cluster_name}-server, {cluster_name}-agent)
-        //    should already be deleted by terraform destroy, but we'll check for stragglers
+        // Find security groups to delete
         let orphaned_sgs: Vec<&SecurityGroup> = sgs_response
             .security_groups
             .iter()
             .filter(|sg| {
                 // Match K8s load balancer security groups
                 if sg.name.starts_with("lb-sg-") {
-                    // Additional safety check: ensure it's related to this cluster
-                    // K8s LB security groups contain namespace or service info in the UUID part
                     return true;
                 }
 
                 // Also catch any terraform-managed groups that weren't properly deleted
-                // Format: {cluster_name}-server or {cluster_name}-agent
                 if sg.name == format!("{}-server", cluster_name)
                     || sg.name == format!("{}-agent", cluster_name) {
                     return true;

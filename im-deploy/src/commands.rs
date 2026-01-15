@@ -193,57 +193,23 @@ fn check_and_import_longhorn_volumes(
 ) -> Result<()> {
     println!("Checking for existing Longhorn volumes...\n");
 
-    let tfvars_path = config.terraform_dir.join("terraform.tfvars");
-    if !tfvars_path.exists() {
-        println!("  terraform.tfvars not found, skipping volume import check.\n");
-        return Ok(());
-    }
-
-    let tfvars_content = std::fs::read_to_string(&tfvars_path)
-        .context("Failed to read terraform.tfvars")?;
-
-    let cluster_name = tfvars_content
-        .lines()
-        .find(|line| line.trim().starts_with("cluster_name"))
-        .and_then(|line| line.split('=').nth(1))
-        .map(|s| s.trim().trim_matches('"').to_string());
-
-    if cluster_name.is_none() {
-        println!("  Could not find cluster_name in terraform.tfvars, skipping volume import.\n");
-        return Ok(());
-    }
-
-    let cluster_name = cluster_name.unwrap();
-
-    let get_tfvar = |key: &str| -> Option<String> {
-        tfvars_content
-            .lines()
-            .find(|line| line.trim().starts_with(key))
-            .and_then(|line| line.split('=').nth(1))
-            .map(|s| s.trim().trim_matches('"').to_string())
+    let os_config = match &config.openstack {
+        Some(cfg) => cfg,
+        None => {
+            println!("  OpenStack credentials not available, skipping volume import check.\n");
+            return Ok(());
+        }
     };
 
-    let auth_url = get_tfvar("openstack_auth_url");
-    let username = get_tfvar("user_name");
-    let password = get_tfvar("user_password");
-    let project = get_tfvar("tenant_name");
-    let cacert_file = get_tfvar("openstack_cacert_file");
-    let insecure = get_tfvar("openstack_insecure")
-        .and_then(|s| s.parse::<bool>().ok())
-        .unwrap_or(false);
-
-    if auth_url.is_none() || username.is_none() || password.is_none() || project.is_none() {
-        println!("  OpenStack credentials not found in terraform.tfvars, skipping volume import.\n");
-        return Ok(());
-    }
+    let cluster_name = &config.cluster_name;
 
     let os_client = match OpenStackClient::new(
-        &auth_url.unwrap(),
-        &username.unwrap(),
-        &password.unwrap(),
-        &project.unwrap(),
-        cacert_file.as_deref(),
-        insecure,
+        &os_config.auth_url,
+        &os_config.username,
+        &os_config.password,
+        &os_config.project_name,
+        os_config.cacert_file.as_deref(),
+        os_config.insecure,
     ) {
         Ok(client) => client,
         Err(e) => {
@@ -253,7 +219,7 @@ fn check_and_import_longhorn_volumes(
         }
     };
 
-    let volume_pattern = format!("{}-agent-", cluster_name);
+    let volume_pattern = format!("{}-openstack-agent-", cluster_name);
     let volumes = match os_client.list_volumes_by_name(&volume_pattern) {
         Ok(vols) => vols,
         Err(e) => {
@@ -262,11 +228,6 @@ fn check_and_import_longhorn_volumes(
             return Ok(());
         }
     };
-
-    if volumes.is_empty() {
-        println!("  No existing Longhorn volumes found.\n");
-        return Ok(());
-    }
 
     let longhorn_volumes: Vec<_> = volumes
         .into_iter()
