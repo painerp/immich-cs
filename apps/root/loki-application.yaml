@@ -1,0 +1,45 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    targetRevision: 7.0.0
+    chart: loki-stack
+    values: |
+      loki:
+        enabled: true
+        persistence:
+          enabled: true
+          size: 10Gi
+      promtail:
+        enabled: true
+        config:
+          clients:
+            - url: http://loki:3100/loki/api/v1/push
+      grafana:
+        enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: loki-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
