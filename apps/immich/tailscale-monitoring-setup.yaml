@@ -1,0 +1,145 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tailscale-monitoring-setup
+  namespace: prometheus-system
+data:
+  setup-prometheus-serve.sh: |
+    #!/bin/bash
+    set -e
+    
+    LOG_FILE="/var/log/tailscale-prometheus-serve.log"
+    log() {
+        echo "$@" | tee -a "$LOG_FILE"
+    }
+    
+    log "Setting up Tailscale Serve for Prometheus..."
+    
+    log "Waiting for Prometheus service..."
+    for i in {1..120}; do
+      if curl -s http://prometheus-kube-prometheus-prometheus:9090/-/healthy >/dev/null 2>&1; then
+        log "Prometheus service is healthy"
+        break
+      fi
+      log "Waiting for Prometheus service (attempt $i/120)..."
+      sleep 5
+    done
+    
+    log "Configuring Tailscale Serve to expose Prometheus..."
+    if tailscale serve --service=prometheus --https=443 "http://prometheus-kube-prometheus-prometheus:9090" >> "$LOG_FILE" 2>&1; then
+      TAILSCALE_DOMAIN=$(tailscale status --json 2>/dev/null | jq -r '.MagicDNSSuffix' | sed 's/^\.//g')
+      log "===================================================================="
+      log "✓ Tailscale Serve configured for Prometheus"
+      log "  Access via: https://prometheus.$TAILSCALE_DOMAIN"
+      log "===================================================================="
+    else
+      log "ERROR: Failed to configure Tailscale Serve for Prometheus"
+      exit 1
+    fi
+
+  setup-grafana-serve.sh: |
+    #!/bin/bash
+    set -e
+    
+    LOG_FILE="/var/log/tailscale-grafana-serve.log"
+    log() {
+        echo "$@" | tee -a "$LOG_FILE"
+    }
+    
+    log "Setting up Tailscale Serve for Grafana..."
+    
+    log "Waiting for Grafana service..."
+    for i in {1..120}; do
+      if curl -s http://prometheus-grafana:80/-/ping >/dev/null 2>&1; then
+        log "Grafana service is healthy"
+        break
+      fi
+      log "Waiting for Grafana service (attempt $i/120)..."
+      sleep 5
+    done
+    
+    log "Configuring Tailscale Serve to expose Grafana..."
+    if tailscale serve --service=grafana --https=443 "http://prometheus-grafana:80" >> "$LOG_FILE" 2>&1; then
+      TAILSCALE_DOMAIN=$(tailscale status --json 2>/dev/null | jq -r '.MagicDNSSuffix' | sed 's/^\.//g')
+      log "===================================================================="
+      log "✓ Tailscale Serve configured for Grafana"
+      log "  Access via: https://grafana.$TAILSCALE_DOMAIN"
+      log "===================================================================="
+    else
+      log "ERROR: Failed to configure Tailscale Serve for Grafana"
+      exit 1
+    fi
+---
+# Job to setup Tailscale Serve for Prometheus on the master node
+# This runs once when Prometheus is deployed
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: setup-tailscale-prometheus
+  namespace: prometheus-system
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: Never
+      nodeSelector:
+        node-role.kubernetes.io/master: ""
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: setup-prometheus
+        image: alpine:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          apk add --no-cache curl jq bash
+          cat /scripts/setup-prometheus-serve.sh | bash
+        volumeMounts:
+        - name: setup-scripts
+          mountPath: /scripts
+      volumes:
+      - name: setup-scripts
+        configMap:
+          name: tailscale-monitoring-setup
+          defaultMode: 0755
+---
+# Job to setup Tailscale Serve for Grafana on the master node
+# This runs once when Grafana is deployed
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: setup-tailscale-grafana
+  namespace: prometheus-system
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: Never
+      nodeSelector:
+        node-role.kubernetes.io/master: ""
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: setup-grafana
+        image: alpine:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          apk add --no-cache curl jq bash
+          cat /scripts/setup-grafana-serve.sh | bash
+        volumeMounts:
+        - name: setup-scripts
+          mountPath: /scripts
+      volumes:
+      - name: setup-scripts
+        configMap:
+          name: tailscale-monitoring-setup
+          defaultMode: 0755
