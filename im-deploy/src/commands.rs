@@ -377,8 +377,28 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
         println!("\n=== Step 2: OpenStack pre-cleanup skipped (credentials not available) ===\n");
     }
 
-    // Step 4: Run terraform destroy
-    println!("=== Step 3: Running terraform destroy ===\n");
+    // Step 4: Remove Longhorn backup container from state to preserve backups
+    println!("\n=== Step 3: Preserving Longhorn backup container ===");
+    println!("Removing Swift backup container from Terraform state to prevent deletion...\n");
+
+    // Try to remove the backup container from state - ignore errors if it doesn't exist
+    let state_rm_result = run_terraform_command(
+        &config.terraform_bin,
+        &config.terraform_dir,
+        &["state", "rm", "module.openstack_k3s[0].openstack_objectstorage_container_v1.longhorn_backup[0]"],
+    );
+
+    match state_rm_result {
+        Ok(_) => println!("✓ Backup container removed from state - backups will be preserved\n"),
+        Err(e) => {
+            // Not a critical error - container may not exist or backups may be disabled
+            println!("Note: Could not remove backup container from state: {}", e);
+            println!("      This is normal if Longhorn backups are disabled or container doesn't exist.\n");
+        }
+    }
+
+    // Step 5: Run terraform destroy
+    println!("=== Step 4: Running terraform destroy ===\n");
 
     let destroy_start = Instant::now();
     run_terraform_command(&config.terraform_bin, &config.terraform_dir, &["destroy", "--auto-approve"])?;
@@ -390,10 +410,10 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
     println!("\nTerraform destroy complete!");
     println!("Terraform destroy time: {}m {:02}s", destroy_mins, destroy_secs);
 
-    // Step 5: Cleanup remaining orphaned OpenStack resources (after terraform destroy)
+    // Step 6: Cleanup remaining orphaned OpenStack resources (after terraform destroy)
     if let Some(ref os_config) = config.openstack {
         if let Some(ref cl_name) = cluster_name {
-            println!("\n=== Step 4: Cleaning up remaining orphaned OpenStack resources ===");
+            println!("\n=== Step 5: Cleaning up remaining orphaned OpenStack resources ===");
 
             match OpenStackClient::new(
                 &os_config.auth_url,
@@ -415,10 +435,10 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
                 }
             }
         } else {
-            println!("\n=== Step 4: OpenStack post-cleanup skipped (cluster_name not found) ===");
+            println!("\n=== Step 5: OpenStack post-cleanup skipped (cluster_name not found) ===");
         }
     } else {
-        println!("\n=== Step 4: OpenStack post-cleanup skipped (credentials not available) ===");
+        println!("\n=== Step 5: OpenStack post-cleanup skipped (credentials not available) ===");
     }
 
     println!("\nCluster destroyed!");
