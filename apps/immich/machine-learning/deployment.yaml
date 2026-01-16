@@ -63,7 +63,7 @@ spec:
             value: immich-valkey
           - name: TRANSFORMERS_CACHE
             value: /cache
-          image: ghcr.io/immich-app/immich-machine-learning:release-cuda
+          image: ghcr.io/immich-app/immich-machine-learning:v2-cuda
           command:
             - /bin/sh
             - -c
