@@ -113,6 +113,19 @@ longhorn_storage_size = 50
 # 3 replicas = data replicated across 3 nodes for high availability
 longhorn_replica_count = 3
 
+# Enable S3-compatible backup target using OpenStack Swift (enabled by default)
+# This creates a Swift container for automated Longhorn backups and disaster recovery
+# The Swift container is protected from deletion when cluster is destroyed
+enable_longhorn_backup = true
+
+# S3 endpoint URL for OpenStack Swift (leave empty to auto-detect)
+# Auto-detection replaces port 5000 with 8080 in the auth_url
+# Example: "https://swift.example.com:8080"
+longhorn_backup_s3_endpoint = ""
+
+# S3 region for backups (typically matches OpenStack region)
+longhorn_backup_s3_region = "RegionOne"
+
 ###############################################################################
 # ArgoCD GitOps Configuration
 ###############################################################################

@@ -30,6 +30,13 @@ spec:
       upgradeChecker: false
       defaultDataLocality: disabled
       nodeDownPodDeletionPolicy: delete-both-statefulset-and-deployment-pod
+%{ if backup_enabled ~}
+
+    defaultBackupStore:
+      backupTarget: ${backup_target}
+      backupTargetCredentialSecret: longhorn-backup-s3-secret
+      pollInterval: 300
+%{ endif ~}
 
     ingress:
       enabled: false

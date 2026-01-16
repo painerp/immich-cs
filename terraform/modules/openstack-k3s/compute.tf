@@ -16,23 +16,23 @@ resource "openstack_compute_instance_v2" "k3s_server" {
   }
 
   user_data = templatefile("${path.root}/templates/k3s-server.tpl", {
-    is_first_server              = count.index == 0
-    token                        = var.k3s_token
-    first_server_ip              = count.index == 0 ? "" : openstack_networking_port_v2.server_port[0].all_fixed_ips[0]
-    floating_ip                  = var.enable_load_balancer ? openstack_networking_floatingip_v2.fip_lb[0].address : ""
-    lb_vip                       = var.enable_load_balancer ? openstack_lb_loadbalancer_v2.k3s_lb[0].vip_address : ""
-    cloud_config_auth_url        = local.auth_url
-    cloud_config_username        = local.username
-    cloud_config_password        = local.password
-    cloud_config_region          = local.region
-    cloud_config_subnet_id       = openstack_networking_subnet_v2.subnet.id
-    cloud_config_floating_net    = data.openstack_networking_network_v2.fip_network.id
-    enable_tailscale             = var.enable_tailscale
-    manifests                    = local.manifests_encoded
-    enable_nvidia_gpu_operator   = var.enable_nvidia_gpu_operator
-    gpu_operator_script          = local.gpu_operator_install_script
-    enable_argocd_with_tailscale = local.enable_argocd_with_tailscale
-    argocd_script                = local.argocd_install_script
+    is_first_server                = count.index == 0
+    token                          = var.k3s_token
+    first_server_ip                = count.index == 0 ? "" : openstack_networking_port_v2.server_port[0].all_fixed_ips[0]
+    floating_ip                    = var.enable_load_balancer ? openstack_networking_floatingip_v2.fip_lb[0].address : ""
+    lb_vip                         = var.enable_load_balancer ? openstack_lb_loadbalancer_v2.k3s_lb[0].vip_address : ""
+    cloud_config_auth_url          = local.auth_url
+    cloud_config_username          = local.username
+    cloud_config_password          = local.password
+    cloud_config_region            = local.region
+    cloud_config_subnet_id         = openstack_networking_subnet_v2.subnet.id
+    cloud_config_floating_net      = data.openstack_networking_network_v2.fip_network.id
+    enable_tailscale               = var.enable_tailscale
+    manifests                      = local.manifests_encoded
+    enable_nvidia_gpu_operator     = var.enable_nvidia_gpu_operator
+    gpu_operator_script            = local.gpu_operator_install_script
+    enable_argocd_with_tailscale   = local.enable_argocd_with_tailscale
+    argocd_script                  = local.argocd_install_script
     enable_longhorn_with_tailscale = local.enable_longhorn_with_tailscale
     tailscale_argocd_serve_script = local.enable_argocd_with_tailscale ? templatefile("${path.root}/templates/tailscale-argocd-serve.tpl", {
       argocd_wait_timeout = count.index == 0 ? 120 : 1200

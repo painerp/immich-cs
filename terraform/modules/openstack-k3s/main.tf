@@ -70,8 +70,8 @@ check "bastion_tailscale_redundancy" {
 
 locals {
   # Calculate total nodes for GPU Operator script
-  total_nodes                   = var.server_count + var.agent_count
-  enable_argocd_with_tailscale  = var.enable_argocd && var.enable_tailscale
+  total_nodes                    = var.server_count + var.agent_count
+  enable_argocd_with_tailscale   = var.enable_argocd && var.enable_tailscale
   enable_longhorn_with_tailscale = var.enable_longhorn && var.enable_tailscale
 
   # Generate GPU Operator installation script
@@ -132,7 +132,22 @@ locals {
     } : {},
     var.enable_longhorn ? {
       "longhorn.yaml" = templatefile("${path.root}/manifests/longhorn.yaml.tpl", {
-        replica_count = var.longhorn_replica_count
+        replica_count  = var.longhorn_replica_count
+        backup_enabled = local.longhorn_backup_enabled
+        backup_target  = local.longhorn_backup_target
+      })
+    } : {},
+    local.longhorn_backup_enabled ? {
+      "longhorn-backup-secret.yaml" = templatefile("${path.root}/manifests/longhorn-backup-secret.yaml.tpl", {
+        access_key  = openstack_identity_ec2_credential_v3.longhorn_s3[0].access
+        secret_key  = openstack_identity_ec2_credential_v3.longhorn_s3[0].secret
+        s3_endpoint = local.longhorn_s3_endpoint
+        ca_cert     = fileexists(local.cacert_file) ? base64encode(trimspace(file(local.cacert_file))) : ""
+      })
+      "longhorn-recurring-backup.yaml" = templatefile("${path.root}/manifests/longhorn-recurring-backup.yaml.tpl", {
+        backup_cron        = var.longhorn_backup_schedule
+        backup_retain      = var.longhorn_backup_retention
+        backup_concurrency = var.longhorn_backup_concurrency
       })
     } : {}
   )

@@ -100,3 +100,28 @@ output "tailscale_ssh_examples" {
     first_agent  = var.agent_count > 0 ? "ssh ubuntu@${local.tailscale_prefix}-agent-0" : null
   } : null
 }
+
+###############################################################################
+# Longhorn Backup Outputs
+###############################################################################
+
+output "longhorn_backup_enabled" {
+  description = "Whether Longhorn backup to Swift S3 is enabled"
+  value       = local.longhorn_backup_enabled
+}
+
+output "longhorn_backup_container" {
+  description = "Swift container name for Longhorn backups"
+  value       = local.longhorn_backup_enabled ? openstack_objectstorage_container_v1.longhorn_backup[0].name : null
+}
+
+output "longhorn_backup_target" {
+  description = "Longhorn backup target URL"
+  value       = local.longhorn_backup_enabled ? local.longhorn_backup_target : null
+}
+
+output "longhorn_s3_endpoint" {
+  description = "S3 endpoint URL for Longhorn backups"
+  value       = local.longhorn_backup_enabled ? local.longhorn_s3_endpoint : null
+}
+

@@ -64,9 +64,15 @@ module "openstack_k3s" {
   tailscale_ip_update_interval = var.tailscale_ip_update_interval
 
   # Longhorn distributed storage
-  enable_longhorn         = var.enable_longhorn
-  longhorn_storage_size   = var.longhorn_storage_size
-  longhorn_replica_count  = var.longhorn_replica_count
+  enable_longhorn             = var.enable_longhorn
+  longhorn_storage_size       = var.longhorn_storage_size
+  longhorn_replica_count      = var.longhorn_replica_count
+  enable_longhorn_backup      = var.enable_longhorn_backup
+  longhorn_backup_s3_endpoint = var.longhorn_backup_s3_endpoint
+  longhorn_backup_s3_region   = var.longhorn_backup_s3_region
+  longhorn_backup_schedule    = var.longhorn_backup_schedule
+  longhorn_backup_retention   = var.longhorn_backup_retention
+  longhorn_backup_concurrency = var.longhorn_backup_concurrency
 
   # GPU support
   enable_nvidia_gpu_operator = var.enable_nvidia_gpu_operator
