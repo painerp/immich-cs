@@ -70,8 +70,9 @@ check "bastion_tailscale_redundancy" {
 
 locals {
   # Calculate total nodes for GPU Operator script
-  total_nodes                  = var.server_count + var.agent_count
-  enable_argocd_with_tailscale = var.enable_argocd && var.enable_tailscale
+  total_nodes                   = var.server_count + var.agent_count
+  enable_argocd_with_tailscale  = var.enable_argocd && var.enable_tailscale
+  enable_longhorn_with_tailscale = var.enable_longhorn && var.enable_tailscale
 
   # Generate GPU Operator installation script
   gpu_operator_install_script = var.enable_nvidia_gpu_operator ? templatefile("${path.root}/templates/gpu-operator-install.tpl", {
@@ -128,6 +129,11 @@ locals {
         parameters    = {}
       })
       "csi-cinder-snapclass.yaml" = file("${path.root}/manifests/csi-cinder-snapclass.yaml")
+    } : {},
+    var.enable_longhorn ? {
+      "longhorn.yaml" = templatefile("${path.root}/manifests/longhorn.yaml.tpl", {
+        replica_count = var.longhorn_replica_count
+      })
     } : {}
   )
 

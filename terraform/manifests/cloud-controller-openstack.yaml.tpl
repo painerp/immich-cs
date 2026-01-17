@@ -12,7 +12,7 @@ spec:
   valuesContent: |-
     logVerbosityLevel: 2
     nodeSelector:
-      node-role.kubernetes.io/master: "true"
+      node-role.kubernetes.io/control-plane: "true"
     tolerations:
       - effect: NoExecute
         key: CriticalAddonsOnly

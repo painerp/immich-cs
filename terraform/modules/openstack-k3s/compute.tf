@@ -33,9 +33,13 @@ resource "openstack_compute_instance_v2" "k3s_server" {
     gpu_operator_script          = local.gpu_operator_install_script
     enable_argocd_with_tailscale = local.enable_argocd_with_tailscale
     argocd_script                = local.argocd_install_script
+    enable_longhorn_with_tailscale = local.enable_longhorn_with_tailscale
     tailscale_argocd_serve_script = local.enable_argocd_with_tailscale ? templatefile("${path.root}/templates/tailscale-argocd-serve.tpl", {
       argocd_wait_timeout = count.index == 0 ? 120 : 1200
       admin_password      = var.argocd_admin_password
+    }) : ""
+    tailscale_longhorn_serve_script = local.enable_longhorn_with_tailscale ? templatefile("${path.root}/templates/tailscale-longhorn-serve.tpl", {
+      longhorn_wait_timeout = count.index == 0 ? 120 : 1200
     }) : ""
     tailscale_script = var.enable_tailscale ? templatefile("${path.root}/templates/tailscale-install.tpl", {
       tailscale_auth_key = tailscale_tailnet_key.server[count.index].key
@@ -66,6 +70,7 @@ resource "openstack_compute_instance_v2" "k3s_agent" {
   user_data = templatefile("${path.root}/templates/k3s-agent.tpl", {
     k3s_token                    = var.k3s_token
     k3s_url                      = "https://${var.enable_load_balancer ? openstack_lb_loadbalancer_v2.k3s_lb[0].vip_address : openstack_compute_instance_v2.k3s_server[0].access_ip_v4}:6443"
+    enable_longhorn              = var.enable_longhorn
     enable_tailscale             = var.enable_tailscale
     tailscale_ip_update_interval = var.tailscale_ip_update_interval
     tailscale_script = var.enable_tailscale ? templatefile("${path.root}/templates/tailscale-install.tpl", {

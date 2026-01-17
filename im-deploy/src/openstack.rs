@@ -11,7 +11,27 @@ struct TokenResponse {
 #[derive(Debug, Deserialize)]
 struct Token {
     #[serde(rename = "catalog")]
-    _catalog: Vec<serde_json::Value>,
+    catalog: Vec<CatalogEntry>,
+    project: Option<ProjectInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CatalogEntry {
+    #[serde(rename = "type")]
+    service_type: String,
+    endpoints: Vec<Endpoint>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Endpoint {
+    url: String,
+    interface: String,
+    region: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProjectInfo {
+    id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -98,14 +118,40 @@ struct LoadBalancersResponse {
     loadbalancers: Vec<LoadBalancer>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct Volume {
+    pub id: String,
+    pub name: String,
+    pub size: u32,
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct VolumesResponse {
+    volumes: Vec<Volume>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SecurityGroup {
+    id: String,
+    name: String,
+    description: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SecurityGroupsResponse {
+    security_groups: Vec<SecurityGroup>,
+}
+
 pub struct OpenStackClient {
     client: Client,
     auth_token: String,
     neutron_endpoint: String,
-    octavia_endpoint: String,
+    octavia_endpoint: String
 }
 
 impl OpenStackClient {
+
     pub fn new(
         auth_url: &str,
         username: &str,
@@ -199,7 +245,7 @@ impl OpenStackClient {
         })
     }
 
-    pub fn cleanup_before_destroy(&self, network_id: &str) -> Result<()> {
+    pub fn cleanup_before_destroy(&self, network_id: &str, _cluster_name: &str) -> Result<()> {
         println!("\n=== Pre-Destroy Cleanup ===");
         println!("Removing dynamic resources to prevent terraform destroy from blocking...\n");
 
@@ -214,12 +260,15 @@ impl OpenStackClient {
         Ok(())
     }
 
-    pub fn cleanup_after_destroy(&self) -> Result<()> {
+    pub fn cleanup_after_destroy(&self, cluster_name: &str) -> Result<()> {
         println!("\n=== Post-Destroy Cleanup ===");
         println!("Cleaning up remaining orphaned resources...\n");
 
         self.cleanup_floating_ips()?;
         self.cleanup_loadbalancer_ports()?;
+
+        // Security groups must be deleted last, after all resources using them are gone
+        self.cleanup_security_groups(cluster_name)?;
 
         Ok(())
     }
@@ -717,6 +766,102 @@ impl OpenStackClient {
         if failed_count > 0 {
             eprintln!("  WARNING: Some ports could not be deleted. Terraform destroy may still block.");
             eprintln!("           Wait a moment and retry, or check OpenStack dashboard.");
+        }
+
+        Ok(())
+    }
+
+    fn cleanup_security_groups(&self, cluster_name: &str) -> Result<()> {
+        println!("\nChecking for orphaned security groups...");
+
+        let url = format!("{}/security-groups", self.neutron_endpoint);
+        let response = self
+            .client
+            .get(&url)
+            .header("X-Auth-Token", &self.auth_token)
+            .send()
+            .context("Failed to list security groups")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().unwrap_or_default();
+            eprintln!("  WARNING: Failed to list security groups ({}): {}", status, body);
+            return Ok(());
+        }
+
+        let sgs_response: SecurityGroupsResponse = response
+            .json()
+            .context("Failed to parse security groups response")?;
+
+        // Find security groups to delete
+        let orphaned_sgs: Vec<&SecurityGroup> = sgs_response
+            .security_groups
+            .iter()
+            .filter(|sg| {
+                // Match K8s load balancer security groups
+                if sg.name.starts_with("lb-sg-") {
+                    return true;
+                }
+
+                // Also catch any terraform-managed groups that weren't properly deleted
+                if sg.name == format!("{}-server", cluster_name)
+                    || sg.name == format!("{}-agent", cluster_name) {
+                    return true;
+                }
+
+                false
+            })
+            .collect();
+
+        if orphaned_sgs.is_empty() {
+            println!("  -> No orphaned security groups found");
+            return Ok(());
+        }
+
+        println!("  Found {} orphaned security group(s):", orphaned_sgs.len());
+        for sg in &orphaned_sgs {
+            println!("    - {} ({})", sg.name, sg.id);
+        }
+
+        let mut deleted_count = 0;
+        let mut failed_count = 0;
+
+        for sg in orphaned_sgs {
+            println!("    Deleting security group: {} ...", sg.name);
+            let delete_url = format!("{}/security-groups/{}", self.neutron_endpoint, sg.id);
+            match self
+                .client
+                .delete(&delete_url)
+                .header("X-Auth-Token", &self.auth_token)
+                .send()
+            {
+                Ok(resp) if resp.status().is_success() || resp.status().as_u16() == 404 => {
+                    println!("    -> Deleted security group: {}", sg.name);
+                    deleted_count += 1;
+                }
+                Ok(resp) => {
+                    let status = resp.status();
+                    let body = resp.text().unwrap_or_default();
+
+                    // Security groups might still be in use - this is expected sometimes
+                    if status.as_u16() == 409 {
+                        eprintln!("    WARNING: Security group {} still in use (will be cleaned up by OpenStack eventually)", sg.name);
+                    } else {
+                        eprintln!("    ERROR: Failed to delete {}: {} - {}", sg.name, status, body);
+                    }
+                    failed_count += 1;
+                }
+                Err(e) => {
+                    eprintln!("    ERROR: Failed to delete {}: {}", sg.name, e);
+                    failed_count += 1;
+                }
+            }
+        }
+
+        println!("  Security groups: {} deleted, {} failed/skipped", deleted_count, failed_count);
+
+        if failed_count > 0 {
+            println!("  Note: Some security groups may still be in use and will be cleaned up automatically by OpenStack");
         }
 
         Ok(())

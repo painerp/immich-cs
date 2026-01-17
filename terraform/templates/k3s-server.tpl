@@ -152,6 +152,11 @@ runcmd:
   - |
     ${indent(4, argocd_script)}
 %{ endif ~}
+%{ if enable_longhorn_with_tailscale ~}
+  - echo "Setting up Tailscale Serve for Longhorn..." >> /var/log/k3s-server.log
+  - |
+    ${indent(4, tailscale_longhorn_serve_script)}
+%{ endif ~}
 %{ if enable_argocd_with_tailscale ~}
   - echo "Setting up Tailscale Serve for ArgoCD..." >> /var/log/k3s-server.log
   - |

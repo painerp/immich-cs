@@ -9,7 +9,7 @@ metadata:
   namespace: immich
 spec:
   revisionHistoryLimit: 3
-  replicas: 1
+  replicas: 3
   strategy:
     type: RollingUpdate
   selector:
@@ -64,6 +64,12 @@ spec:
           - name: TRANSFORMERS_CACHE
             value: /cache
           image: ghcr.io/immich-app/immich-machine-learning:v2-cuda
+          command:
+            - /bin/sh
+            - -c
+            - |
+              sed -i 's/"device_id": settings.device_id}/"device_id": settings.device_id, "enable_cuda_graph": False, "cudnn_conv_algo_search": "DEFAULT"}/' /usr/src/immich_ml/sessions/ort.py
+              exec python -m immich_ml
           imagePullPolicy: IfNotPresent
           livenessProbe:
             failureThreshold: 3
