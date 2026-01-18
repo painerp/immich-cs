@@ -31,6 +31,9 @@ spec:
       hostNetwork: false
       hostPID: false
       dnsPolicy: ClusterFirst
+      runtimeClassName: nvidia
+      nodeSelector:
+      nvidia.com/gpu: "true"
       containers:
         - env:
           - name: DB_DATABASE_NAME
@@ -96,6 +99,8 @@ spec:
             timeoutSeconds: 1
           resources:
             limits:
+              nvidia.com/gpu: 1
+            requests:
               nvidia.com/gpu: 1
           startupProbe:
             failureThreshold: 30
