@@ -9,7 +9,7 @@ metadata:
   namespace: immich
 spec:
   revisionHistoryLimit: 3
-  replicas: 1
+  replicas: 3
   strategy:
     type: RollingUpdate
   selector:
@@ -98,9 +98,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 1
           resources:
-            limits:
-              nvidia.com/gpu: 1
             requests:
+              cpu: 500m
+              memory: 1Gi
+              nvidia.com/gpu: 1
+            limits:
+              cpu: 2000m
+              memory: 4Gi
               nvidia.com/gpu: 1
           startupProbe:
             failureThreshold: 30
