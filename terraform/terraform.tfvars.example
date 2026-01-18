@@ -78,6 +78,21 @@ tailscale_key_expiry = 7200
 tailscale_ip_update_interval = 300
 
 ###############################################################################
+# Tailscale OAuth Credentials for In-Cluster Helm Chart (Optional)
+###############################################################################
+
+# Tailscale OAuth Client ID
+# Create a separate OAuth application in Tailscale Admin Console for in-cluster use
+# This is independent of the tailscale_api_key used for ephemeral node keys
+# Leave empty if not using Tailscale Helm chart with OAuth
+tailscale_oauth_client_id = ""
+
+# Tailscale OAuth Client Secret
+# Pair with the client ID above for in-cluster Tailscale Helm chart
+# This will be stored in a Kubernetes Secret in the tailscale namespace
+tailscale_oauth_client_secret = ""
+
+###############################################################################
 # Security Configuration
 ###############################################################################
 

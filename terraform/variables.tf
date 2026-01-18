@@ -191,6 +191,41 @@ variable "tailscale_ip_update_interval" {
   }
 }
 
+variable "tailscale_oauth_client_id" {
+  description = <<-EOT
+    Tailscale OAuth client ID for the Kubernetes in-cluster Helm chart deployment.
+    
+    This is SEPARATE from tailscale_api_key and is used by the Tailscale Helm chart
+    running inside the cluster to authenticate with Tailscale.
+
+    Create an OAuth client in the Tailscale Admin Console:
+    1. Visit: https://login.tailscale.com/admin/settings/oauth
+    2. Click "Generate OAuth Client"
+    3. Add description: "Kubernetes in-cluster OAuth"
+    4. Required scopes: (depends on Tailscale Helm chart requirements)
+    5. Copy the client ID
+
+    This will be stored as a Kubernetes Secret in the tailscale namespace.
+  EOT
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "tailscale_oauth_client_secret" {
+  description = <<-EOT
+    Tailscale OAuth client secret for the Kubernetes in-cluster Helm chart deployment.
+    
+    This is SEPARATE from tailscale_api_key and is used by the Tailscale Helm chart
+    running inside the cluster to authenticate with Tailscale.
+
+    This will be stored as a Kubernetes Secret in the tailscale namespace.
+  EOT
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 ###############################################################################
 # OpenStack Cloud Controller Configuration
 ###############################################################################

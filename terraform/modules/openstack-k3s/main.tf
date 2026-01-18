@@ -104,6 +104,12 @@ locals {
         insecure            = var.insecure
       })
     },
+    var.enable_tailscale && var.tailscale_oauth_client_id != "" && var.tailscale_oauth_client_secret != "" ? {
+      "tailscale-oauth-secret.yaml" = templatefile("${path.root}/templates/tailscale-oauth-secret.tpl", {
+        client_id_b64     = local.tailscale_oauth_client_id_b64
+        client_secret_b64 = local.tailscale_oauth_client_secret_b64
+      })
+    } : {},
     var.enable_csi_cinder ? {
       "csi-cinder.yaml" = templatefile("${path.root}/manifests/csi-cinder.yaml.tpl", {
         operator_replica = local.operator_replica

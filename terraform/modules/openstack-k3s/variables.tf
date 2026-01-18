@@ -224,3 +224,20 @@ variable "argocd_repo_branch" {
   default     = "main"
 }
 
+###############################################################################
+# Tailscale OAuth Secret Configuration
+###############################################################################
+
+variable "tailscale_oauth_client_id" {
+  description = "Tailscale OAuth client ID for in-cluster Helm chart (separate from ephemeral node keys)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "tailscale_oauth_client_secret" {
+  description = "Tailscale OAuth client secret for in-cluster Helm chart (separate from ephemeral node keys)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}

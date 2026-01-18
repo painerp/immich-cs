@@ -8,13 +8,10 @@ spec:
   source:
     repoURL: https://pkgs.tailscale.com/helmcharts
     chart: tailscale
-    targetRevision: "1.56.0"
+    targetRevision: "1.92.5"
     helm:
       releaseName: tailscale
       values: |
-        oauth:
-          clientId: ${TAILSCALE_CLIENT_ID}
-          clientSecret: ${TAILSCALE_CLIENT_SECRET}
         apiServerProxyEnabled: true
         routes:
         - 10.0.0.0/8

@@ -62,6 +62,8 @@ module "openstack_k3s" {
   tailscale_hostname_prefix    = var.tailscale_hostname_prefix
   tailscale_key_expiry         = var.tailscale_key_expiry
   tailscale_ip_update_interval = var.tailscale_ip_update_interval
+  tailscale_oauth_client_id     = var.tailscale_oauth_client_id
+  tailscale_oauth_client_secret = var.tailscale_oauth_client_secret
 
   # GPU support
   enable_nvidia_gpu_operator = var.enable_nvidia_gpu_operator
