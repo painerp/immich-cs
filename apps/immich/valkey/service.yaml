@@ -14,6 +14,10 @@ spec:
       targetPort: redis
       protocol: TCP
       name: redis
+    - port: 9121
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
   selector:
     app.kubernetes.io/controller: main
     app.kubernetes.io/instance: immich

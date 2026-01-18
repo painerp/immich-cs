@@ -32,6 +32,22 @@ spec:
       hostPID: false
       dnsPolicy: ClusterFirst
       containers:
+        - name: exporter
+          image: oliver006/redis_exporter:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - --redis.addr=localhost:6379
+          ports:
+          - containerPort: 9121
+            name: metrics
+            protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
         - env:
           - name: DB_DATABASE_NAME
             valueFrom:
