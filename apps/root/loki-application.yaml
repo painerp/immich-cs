@@ -28,7 +28,7 @@ spec:
         enabled: false
   destination:
     server: https://kubernetes.default.svc
-    namespace: loki-system
+    namespace: prometheus-system  
   syncPolicy:
     automated:
       prune: true
