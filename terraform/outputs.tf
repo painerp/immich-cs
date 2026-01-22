@@ -79,3 +79,17 @@ output "kubeconfig_via_tailscale" {
   } : null
 }
 
+###############################################################################
+# Longhorn Backup Outputs
+###############################################################################
+
+output "longhorn_backup_info" {
+  description = "Longhorn backup configuration information"
+  sensitive   = true
+  value = var.enable_openstack && var.enable_longhorn && var.enable_longhorn_backup ? {
+    enabled        = module.openstack_k3s[0].longhorn_backup_enabled
+    container_name = module.openstack_k3s[0].longhorn_backup_container
+    backup_target  = module.openstack_k3s[0].longhorn_backup_target
+    s3_endpoint    = module.openstack_k3s[0].longhorn_s3_endpoint
+  } : null
+}

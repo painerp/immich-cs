@@ -24,4 +24,15 @@ locals {
 
   # CSI/Operator replica count - use min of server count and 3 for HA controllers
   operator_replica = min(var.server_count, 3)
+
+  # Longhorn backup configuration
+  longhorn_backup_enabled = var.enable_longhorn && var.enable_longhorn_backup
+
+  # S3 endpoint for Swift
+  longhorn_s3_endpoint = var.longhorn_backup_s3_endpoint != "" ? var.longhorn_backup_s3_endpoint : (
+    local.longhorn_backup_enabled ? regex("^(https?://[^/:]+)", local.auth_url)[0] : ""
+  )
+
+  # Longhorn backup target format: s3://bucket@region/
+  longhorn_backup_target = local.longhorn_backup_enabled ? "s3://${openstack_objectstorage_container_v1.longhorn_backup[0].name}@${var.longhorn_backup_s3_region}/" : ""
 }

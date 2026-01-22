@@ -22,6 +22,23 @@ resource "openstack_blockstorage_volume_v3" "agent_longhorn_storage" {
 }
 
 ###############################################################################
+# Swift Container for Longhorn Backups
+###############################################################################
+
+resource "openstack_objectstorage_container_v1" "longhorn_backup" {
+  count = var.enable_longhorn && var.enable_longhorn_backup ? 1 : 0
+
+  name          = "${local.resource_prefix}-longhorn-backup"
+  force_destroy = false
+
+  metadata = {
+    managed_by = "terraform"
+    cluster    = var.cluster_name
+    purpose    = "longhorn-backup"
+  }
+}
+
+###############################################################################
 # Attach Volumes to Agent Instances
 ###############################################################################
 
@@ -32,3 +49,15 @@ resource "openstack_compute_volume_attach_v2" "agent_longhorn_attach" {
 
   device = "/dev/vdb"
 }
+
+###############################################################################
+# EC2 Credentials for Swift S3 API Access
+###############################################################################
+
+# Create EC2 credentials for Longhorn to access Swift via S3 API
+resource "openstack_identity_ec2_credential_v3" "longhorn_s3" {
+  count = var.enable_longhorn && var.enable_longhorn_backup ? 1 : 0
+
+  project_id = data.openstack_identity_auth_scope_v3.scope.project_id
+}
+

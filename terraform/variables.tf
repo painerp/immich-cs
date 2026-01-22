@@ -228,6 +228,44 @@ variable "longhorn_replica_count" {
   default     = 3
 }
 
+variable "enable_longhorn_backup" {
+  description = "Whether to enable S3-compatible backup target for Longhorn using OpenStack Swift (enabled by default when Longhorn is enabled)"
+  type        = bool
+  default     = true
+}
+
+variable "longhorn_backup_s3_endpoint" {
+  description = <<-EOT
+    S3 endpoint URL for Longhorn backups (OpenStack Swift S3 API)
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "longhorn_backup_s3_region" {
+  description = "S3 region for Longhorn backups (typically matches OpenStack region)"
+  type        = string
+  default     = "RegionOne"
+}
+
+variable "longhorn_backup_schedule" {
+  description = "Cron schedule for automatic Longhorn backups (default: daily at 2 AM UTC)"
+  type        = string
+  default     = "0 2 * * *"
+}
+
+variable "longhorn_backup_retention" {
+  description = "Number of backup snapshots to retain (default: 7 days)"
+  type        = number
+  default     = 7
+}
+
+variable "longhorn_backup_concurrency" {
+  description = "Number of concurrent backups allowed"
+  type        = number
+  default     = 2
+}
+
 ###############################################################################
 # GPU Support Configuration
 ###############################################################################
