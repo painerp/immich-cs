@@ -113,6 +113,35 @@ external_api_cidrs = ["0.0.0.0/0"]  # Allowed IPs for K8s API access
 enable_nvidia_gpu_operator = false
 
 ###############################################################################
+# Longhorn Distributed Storage Configuration
+###############################################################################
+# Enable Longhorn for ReadWriteMany volume support (multi-pod access)
+# Longhorn provides distributed block storage with replication across nodes
+enable_longhorn = true
+
+# Size of dedicated Cinder volume attached to each agent for Longhorn storage (in GiB)
+# Total storage = longhorn_storage_size * agent_count
+# Example: 50 GiB * 3 agents = 150 GiB raw storage
+longhorn_storage_size = 50
+
+# Number of replicas for Longhorn volumes (recommended: match agent_count for full HA)
+# 3 replicas = data replicated across 3 nodes for high availability
+longhorn_replica_count = 3
+
+# Enable S3-compatible backup target using OpenStack Swift (enabled by default)
+# This creates a Swift container for automated Longhorn backups and disaster recovery
+# The Swift container is protected from deletion when cluster is destroyed
+enable_longhorn_backup = true
+
+# S3 endpoint URL for OpenStack Swift (leave empty to auto-detect)
+# Auto-detection replaces port 5000 with 8080 in the auth_url
+# Example: "https://swift.example.com:8080"
+longhorn_backup_s3_endpoint = ""
+
+# S3 region for backups (typically matches OpenStack region)
+longhorn_backup_s3_region = "RegionOne"
+
+###############################################################################
 # ArgoCD GitOps Configuration
 ###############################################################################
 # Enable ArgoCD for GitOps continuous deployment

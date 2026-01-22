@@ -37,6 +37,10 @@ ARGOCD_CLUSTER_IP=$(kubectl get svc -n argocd argocd-server -o jsonpath='{.spec.
 log "ArgoCD service cluster IP: $ARGOCD_CLUSTER_IP"
 
 log "Configuring Tailscale Serve to expose ArgoCD..."
+tailscale serve --service=svc:argocd --http=80 "http://$ARGOCD_CLUSTER_IP:80" >> "$LOG_FILE" 2>&1 || {
+    log "ERROR: Failed to configure Tailscale Serve"
+    exit 1
+}
 tailscale serve --service=svc:argocd --https=443 "http://$ARGOCD_CLUSTER_IP:80" >> "$LOG_FILE" 2>&1 || {
     log "ERROR: Failed to configure Tailscale Serve"
     exit 1

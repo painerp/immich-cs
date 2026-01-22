@@ -9,6 +9,10 @@ metadata:
   namespace: immich
 spec:
   type: LoadBalancer
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
   ports:
     - port: 80
       targetPort: 2283

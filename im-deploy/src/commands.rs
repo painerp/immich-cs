@@ -12,21 +12,22 @@ use crate::openstack::OpenStackClient;
 use crate::tailscale;
 use crate::tui::{run_cloud_provider_selector, run_server_selector, CloudProvider, ServerInfo};
 
-pub fn confirm_action(prompt: &str) -> Result<bool> {
-    print!("{} (y/N): ", prompt);
+pub fn confirm_action(prompt: &str, default_yes: bool) -> Result<bool> {
+    let suffix = if default_yes { "(Y/n)" } else { "(y/N)" };
+    print!("{} {}: ", prompt, suffix);
     io::stdout().flush()?;
 
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
 
-    // Default to "no" if empty (just Enter pressed)
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return Ok(false);
+        return Ok(default_yes);
     }
 
     Ok(trimmed.eq_ignore_ascii_case("y"))
 }
+
 
 fn ensure_terraform_initialized(terraform_bin: &str, terraform_dir: &PathBuf) -> Result<()> {
     let terraform_state_dir = terraform_dir.join(".terraform");
@@ -192,7 +193,7 @@ pub fn cmd_deploy(config: &Config, auto_confirm: bool) -> Result<()> {
     println!("Using binary: {}", config.terraform_bin);
     println!();
 
-    if !auto_confirm && !confirm_action("Are you sure you want to deploy the cluster?")? {
+    if !auto_confirm && !confirm_action("Are you sure you want to deploy the cluster?", false)? {
         println!("Deploy cancelled.");
         return Ok(());
     }
@@ -217,13 +218,7 @@ pub fn cmd_deploy(config: &Config, auto_confirm: bool) -> Result<()> {
         println!("Skipped cluster monitoring (--yes flag)...\n");
         false
     } else {
-        print!("Would you like to monitor cluster formation? (y/n): ");
-        io::stdout().flush()?;
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-
-        input.trim().eq_ignore_ascii_case("y")
+        confirm_action("Would you like to monitor cluster formation?", true)?
     };
 
     if should_monitor {
@@ -256,7 +251,7 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
     println!("WARNING: This will destroy all cluster resources!");
     println!();
 
-    if !auto_confirm && !confirm_action("Are you sure you want to destroy the cluster?")? {
+    if !auto_confirm && !confirm_action("Are you sure you want to destroy the cluster?", false)? {
         println!("Destroy cancelled.");
         return Ok(());
     }
@@ -268,7 +263,7 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
         // Verify Tailscale connection before proceeding
         if let Err(e) = tailscale::verify_tailscale_connection() {
             eprintln!("Tailscale verification failed: {}", e);
-            if !auto_confirm && !confirm_action("Continue without Tailscale cleanup?")? {
+            if !auto_confirm && !confirm_action("Continue without Tailscale cleanup?", false)? {
                 println!("Destroy cancelled.");
                 return Ok(());
             }
@@ -290,15 +285,28 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
         println!("\n=== Step 1: Tailscale cleanup skipped (not enabled) ===\n");
     }
 
-    // Step 2: Get network ID from terraform state before destroying
-    println!("\nExtracting network_id from terraform state...");
-    let network_id = get_terraform_outputs(&config.terraform_bin, &config.terraform_dir)
-        .ok()
+    // Step 2: Get network ID and cluster name from terraform state before destroying
+    println!("\nExtracting network_id and cluster_name from terraform state...");
+    let terraform_outputs = get_terraform_outputs(&config.terraform_bin, &config.terraform_dir).ok();
+
+    let network_id = terraform_outputs
+        .as_ref()
         .and_then(|outputs| {
             outputs
                 .get("openstack_cluster")
                 .and_then(|v| v.get("value"))
                 .and_then(|v| v.get("network_id"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
+
+    let cluster_name = terraform_outputs
+        .as_ref()
+        .and_then(|outputs| {
+            outputs
+                .get("openstack_cluster")
+                .and_then(|v| v.get("value"))
+                .and_then(|v| v.get("cluster_name"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
         });
@@ -313,29 +321,36 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
         println!("            Attempting to proceed without network filtering...");
     }
 
+    if let Some(ref cl_name) = cluster_name {
+        println!("   -> Found cluster_name: {}", cl_name);
+    } else {
+        println!("   WARNING: Could not extract cluster_name from terraform outputs");
+    }
+
     // Step 3: Cleanup dynamic OpenStack resources BEFORE terraform destroy
     // This is critical - dynamic LBs block terraform destroy if not removed first!
     if let Some(ref os_config) = config.openstack {
         if let Some(ref net_id) = network_id {
-            println!("\n=== Step 2: Cleaning up dynamic OpenStack resources ===");
-            println!("CRITICAL: Removing dynamically created load balancers to prevent terraform destroy from blocking\n");
+            if let Some(ref cl_name) = cluster_name {
+                println!("\n=== Step 2: Cleaning up dynamic OpenStack resources ===");
+                println!("CRITICAL: Removing dynamically created load balancers to prevent terraform destroy from blocking\n");
 
-            match OpenStackClient::new(
-                &os_config.auth_url,
-                &os_config.username,
-                &os_config.password,
-                &os_config.project_name,
-                os_config.cacert_file.as_deref(),
-                os_config.insecure,
-            ) {
-                Ok(client) => {
-                    if let Err(e) = client.cleanup_before_destroy(net_id) {
-                        eprintln!("\nWARNING: Pre-destroy OpenStack cleanup failed: {}", e);
-                        eprintln!("         Terraform destroy may block waiting for load balancers to be deleted.");
-                        eprintln!("         You may need to manually delete LBs from OpenStack dashboard and retry.");
-                        eprintln!();
+                match OpenStackClient::new(
+                    &os_config.auth_url,
+                    &os_config.username,
+                    &os_config.password,
+                    &os_config.project_name,
+                    os_config.cacert_file.as_deref(),
+                    os_config.insecure,
+                ) {
+                    Ok(client) => {
+                        if let Err(e) = client.cleanup_before_destroy(net_id, cl_name) {
+                            eprintln!("\nWARNING: Pre-destroy OpenStack cleanup failed: {}", e);
+                            eprintln!("         Terraform destroy may block waiting for load balancers to be deleted.");
+                            eprintln!("         You may need to manually delete LBs from OpenStack dashboard and retry.");
+                            eprintln!();
 
-                        if !confirm_action("Terraform destroy may block. Continue anyway?")? {
+                        if !confirm_action("Terraform destroy may block. Continue anyway?", false)? {
                             println!("Destroy cancelled. Please clean up load balancers manually and retry.");
                             return Ok(());
                         }
@@ -346,11 +361,14 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
                     eprintln!("         Pre-destroy cleanup skipped. Terraform destroy may block!");
                     eprintln!();
 
-                    if !confirm_action("Terraform destroy may block without cleanup. Continue anyway?")? {
+                    if !confirm_action("Terraform destroy may block without cleanup. Continue anyway?", false)? {
                         println!("Destroy cancelled.");
                         return Ok(());
                     }
                 }
+            }
+            } else {
+                println!("\n=== Step 2: OpenStack pre-cleanup skipped (cluster_name not found) ===\n");
             }
         } else {
             println!("\n=== Step 2: OpenStack pre-cleanup skipped (network_id not found) ===\n");
@@ -359,8 +377,28 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
         println!("\n=== Step 2: OpenStack pre-cleanup skipped (credentials not available) ===\n");
     }
 
-    // Step 4: Run terraform destroy
-    println!("=== Step 3: Running terraform destroy ===\n");
+    // Step 4: Remove Longhorn backup container from state to preserve backups
+    println!("\n=== Step 3: Preserving Longhorn backup container ===");
+    println!("Removing Swift backup container from Terraform state to prevent deletion...\n");
+
+    // Try to remove the backup container from state - ignore errors if it doesn't exist
+    let state_rm_result = run_terraform_command(
+        &config.terraform_bin,
+        &config.terraform_dir,
+        &["state", "rm", "module.openstack_k3s[0].openstack_objectstorage_container_v1.longhorn_backup[0]"],
+    );
+
+    match state_rm_result {
+        Ok(_) => println!("✓ Backup container removed from state - backups will be preserved\n"),
+        Err(e) => {
+            // Not a critical error - container may not exist or backups may be disabled
+            println!("Note: Could not remove backup container from state: {}", e);
+            println!("      This is normal if Longhorn backups are disabled or container doesn't exist.\n");
+        }
+    }
+
+    // Step 5: Run terraform destroy
+    println!("=== Step 4: Running terraform destroy ===\n");
 
     let destroy_start = Instant::now();
     run_terraform_command(&config.terraform_bin, &config.terraform_dir, &["destroy", "--auto-approve"])?;
@@ -372,36 +410,38 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
     println!("\nTerraform destroy complete!");
     println!("Terraform destroy time: {}m {:02}s", destroy_mins, destroy_secs);
 
-    // Step 5: Cleanup remaining orphaned OpenStack resources (after terraform destroy)
+    // Step 6: Cleanup remaining orphaned OpenStack resources (after terraform destroy)
     if let Some(ref os_config) = config.openstack {
-        println!("\n=== Step 4: Cleaning up remaining orphaned OpenStack resources ===");
+        if let Some(ref cl_name) = cluster_name {
+            println!("\n=== Step 5: Cleaning up remaining orphaned OpenStack resources ===");
 
-        match OpenStackClient::new(
-            &os_config.auth_url,
-            &os_config.username,
-            &os_config.password,
-            &os_config.project_name,
-            os_config.cacert_file.as_deref(),
-            os_config.insecure,
-        ) {
-            Ok(client) => {
-                if let Err(e) = client.cleanup_after_destroy() {
-                    eprintln!("\nWARNING: Post-destroy OpenStack cleanup failed: {}", e);
-                    eprintln!("         Some resources may need to be cleaned up manually via OpenStack dashboard");
+            match OpenStackClient::new(
+                &os_config.auth_url,
+                &os_config.username,
+                &os_config.password,
+                &os_config.project_name,
+                os_config.cacert_file.as_deref(),
+                os_config.insecure,
+            ) {
+                Ok(client) => {
+                    if let Err(e) = client.cleanup_after_destroy(cl_name) {
+                        eprintln!("\nWARNING: Post-destroy OpenStack cleanup failed: {}", e);
+                        eprintln!("         Some resources may need to be cleaned up manually via OpenStack dashboard");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("\nWARNING: Could not authenticate with OpenStack: {}", e);
+                    eprintln!("         Post-destroy cleanup skipped. Check OpenStack dashboard for leftover resources.");
                 }
             }
-            Err(e) => {
-                eprintln!("\nWARNING: Could not authenticate with OpenStack: {}", e);
-                eprintln!("         Post-destroy cleanup skipped. Check OpenStack dashboard for leftover resources.");
-            }
+        } else {
+            println!("\n=== Step 5: OpenStack post-cleanup skipped (cluster_name not found) ===");
         }
     } else {
-        println!("\n=== Step 4: OpenStack post-cleanup skipped (credentials not available) ===");
+        println!("\n=== Step 5: OpenStack post-cleanup skipped (credentials not available) ===");
     }
 
     println!("\nCluster destroyed!");
-    println!("\nTip: Check Tailscale admin console and OpenStack dashboard to verify all resources were removed.");
-
     Ok(())
 }
 

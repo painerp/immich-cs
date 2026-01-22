@@ -186,6 +186,72 @@ variable "cinder_default_reclaim_policy" {
 }
 
 ###############################################################################
+# Longhorn Distributed Storage Configuration
+###############################################################################
+
+variable "enable_longhorn" {
+  description = "Whether to deploy Longhorn distributed storage system"
+  type        = bool
+  default     = true
+}
+
+variable "longhorn_storage_size" {
+  description = "Size of dedicated Cinder volume for Longhorn storage on each agent node (in GiB)"
+  type        = number
+  default     = 50
+  validation {
+    condition     = var.longhorn_storage_size >= 10 && var.longhorn_storage_size <= 1000
+    error_message = "Longhorn storage size must be between 10 and 1000 GiB"
+  }
+}
+
+variable "longhorn_replica_count" {
+  description = "Default number of replicas for Longhorn volumes"
+  type        = number
+  default     = 3
+  validation {
+    condition     = var.longhorn_replica_count >= 1 && var.longhorn_replica_count <= 5
+    error_message = "Longhorn replica count must be between 1 and 5"
+  }
+}
+
+variable "enable_longhorn_backup" {
+  description = "Whether to enable S3-compatible backup target for Longhorn using OpenStack Swift"
+  type        = bool
+  default     = true
+}
+
+variable "longhorn_backup_s3_endpoint" {
+  description = "S3 endpoint URL for Longhorn backups (OpenStack Swift S3 API)"
+  type        = string
+  default     = ""
+}
+
+variable "longhorn_backup_s3_region" {
+  description = "S3 region for Longhorn backups"
+  type        = string
+  default     = "RegionOne"
+}
+
+variable "longhorn_backup_schedule" {
+  description = "Cron schedule for automatic Longhorn backups (default: daily at 2 AM)"
+  type        = string
+  default     = "0 2 * * *"
+}
+
+variable "longhorn_backup_retention" {
+  description = "Number of backup snapshots to retain"
+  type        = number
+  default     = 7
+}
+
+variable "longhorn_backup_concurrency" {
+  description = "Number of concurrent backups allowed"
+  type        = number
+  default     = 2
+}
+
+###############################################################################
 # NVIDIA GPU Support Configuration
 ###############################################################################
 

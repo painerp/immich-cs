@@ -1,0 +1,17 @@
+# Terraform files
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform/
+.terraform.lock.hcl
+
+# Generated manifests (contains sensitive data)
+manifests/immich-s3-secret.yaml
+
+# Backup files
+*.backup
+
+# SSH keys
+*.pem
+*.key
+
