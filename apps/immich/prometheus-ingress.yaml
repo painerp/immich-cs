@@ -1,3 +1,0 @@
-# REMOVED: Ingress resources for Prometheus and Grafana
-# Both services are now accessed exclusively via Tailscale.
-# See MONITORING_TAILSCALE.md for setup and access instructions.

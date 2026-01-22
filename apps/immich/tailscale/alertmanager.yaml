@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: prometheus-system
+  annotations:
+    tailscale.com/proxy-group: ingress-proxies
+    tailscale.com/hostname: alertmanager
+spec:
+  selector:
+    alertmanager: prometheus-kube-prometheus-alertmanager
+    app.kubernetes.io/name: alertmanager
+  ports:
+    - name: http
+      port: 80
+      targetPort: 9093
+    - name: https
+      port: 443
+      targetPort: 9093
+  type: LoadBalancer
+  loadBalancerClass: tailscale

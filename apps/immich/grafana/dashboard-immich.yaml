@@ -4,9 +4,9 @@ metadata:
   name: grafana-dashboard-immich
   namespace: prometheus-system
   labels:
-    grafana_dashboard: "1"  # ← Wichtig: Label für Grafana Dashboard Discovery
+    grafana_dashboard: "1"
 data:
-  immich-overview.json: |-
+  immich-dashboard.json: |-
     {
       "annotations": {
         "list": [

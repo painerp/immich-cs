@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-dashboard-valkey
-  namespace: immich
+  namespace: prometheus-system
   labels:
     grafana_dashboard: "1"
 data:

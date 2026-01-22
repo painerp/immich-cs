@@ -5,5 +5,5 @@ metadata:
   namespace: tailscale
 type: Opaque
 data:
-  client-id: ${client_id_b64}
-  client-secret: ${client_secret_b64}
+  client_id: ${client_id_b64}
+  client_secret: ${client_secret_b64}
