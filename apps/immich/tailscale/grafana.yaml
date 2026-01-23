@@ -3,9 +3,6 @@ kind: Service
 metadata:
   name: grafana
   namespace: prometheus-system
-  annotations:
-    tailscale.com/proxy-group: ingress-proxies
-    tailscale.com/hostname: grafana
 spec:
   selector:
     app.kubernetes.io/instance: prometheus
@@ -14,8 +11,23 @@ spec:
     - name: http
       port: 80
       targetPort: 3000
-    - name: https
-      port: 443
-      targetPort: 3000
-  type: LoadBalancer
-  loadBalancerClass: tailscale
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: prometheus-system
+  annotations:
+    tailscale.com/proxy-group: ingress-proxies
+    tailscale.com/hostname: grafana
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: grafana
+      port:
+        number: 80
+  tls:
+    - hosts:
+        - grafana

@@ -3,9 +3,6 @@ kind: Service
 metadata:
   name: alertmanager
   namespace: prometheus-system
-  annotations:
-    tailscale.com/proxy-group: ingress-proxies
-    tailscale.com/hostname: alertmanager
 spec:
   selector:
     alertmanager: prometheus-kube-prometheus-alertmanager
@@ -14,8 +11,23 @@ spec:
     - name: http
       port: 80
       targetPort: 9093
-    - name: https
-      port: 443
-      targetPort: 9093
-  type: LoadBalancer
-  loadBalancerClass: tailscale
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: alertmanager
+  namespace: prometheus-system
+  annotations:
+    tailscale.com/proxy-group: ingress-proxies
+    tailscale.com/hostname: alertmanager
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: alertmanager
+      port:
+        number: 80
+  tls:
+    - hosts:
+        - alertmanager

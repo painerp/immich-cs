@@ -11,76 +11,61 @@ spec:
   project: default
   source:
     repoURL: https://grafana.github.io/helm-charts
-    targetRevision: 2.10.3
-    chart: loki-stack
-    values: |
-      loki:
-        enabled: true
-        persistence:
+    targetRevision: 6.51.0
+    chart: loki
+    helm:
+      valuesObject:
+        deploymentMode: SingleBinary
+        loki:
+          auth_enabled: false
+          commonConfig:
+            replication_factor: 1
+          storage:
+            type: 'filesystem'
+            bucketNames:
+              chunks: chunks
+              ruler: ruler
+              admin: admin
+          schemaConfig:
+            configs:
+              - from: 2024-01-01
+                store: tsdb
+                object_store: filesystem
+                schema: v13
+                index:
+                  prefix: loki_index_
+                  period: 24h
+        singleBinary:
+          replicas: 1
+          persistence:
+            enabled: true
+            size: 10Gi
+            storageClass: longhorn
+        chunksCache:
           enabled: true
-          size: 10Gi
-      promtail:
-        enabled: true
-        config:
-          clients:
-            - url: http://loki:3100/loki/api/v1/push
-          scrape_configs:
-            - job_name: kubernetes-pods
-              kubernetes_sd_configs:
-                - role: pod
-              relabel_configs:
-                - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
-                  target_label: instance
-                - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
-                  target_label: app
-                - source_labels: [__meta_kubernetes_namespace]
-                  target_label: namespace
-                - source_labels: [__meta_kubernetes_pod_name]
-                  target_label: pod
-                - source_labels: [__meta_kubernetes_pod_container_name]
-                  target_label: container
-            - job_name: immich-server
-              kubernetes_sd_configs:
-                - role: pod
-                  namespaces:
-                    names:
-                      - immich
-              relabel_configs:
-                - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
-                  regex: server
-                  action: keep
-            - job_name: immich-valkey
-              kubernetes_sd_configs:
-                - role: pod
-                  namespaces:
-                    names:
-                      - immich
-              relabel_configs:
-                - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
-                  regex: valkey
-                  action: keep
-            - job_name: immich-machine-learning
-              kubernetes_sd_configs:
-                - role: pod
-                  namespaces:
-                    names:
-                      - immich
-              relabel_configs:
-                - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
-                  regex: machine-learning
-                  action: keep
-            - job_name: immich-database
-              kubernetes_sd_configs:
-                - role: pod
-                  namespaces:
-                    names:
-                      - immich
-              relabel_configs:
-                - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
-                  regex: database
-                  action: keep
-      grafana:
-        enabled: false
+          allocatedMemory: 1024
+          resources:
+            requests:
+              cpu: 100m
+              memory: 1Gi
+            limits:
+              memory: 2Gi
+        read:
+          replicas: 0
+        write:
+          replicas: 0
+        backend:
+          replicas: 0
+        # Disable default chart monitoring
+        monitoring:
+          serviceMonitor:
+            enabled: false
+          selfMonitoring:
+            enabled: false
+            grafanaAgent:
+              installOperator: false
+        test:
+          enabled: false
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus-system
