@@ -1,20 +1,25 @@
-mod config;
+pub mod config;
 mod commands;
+pub mod constants;
+pub mod domain;
+pub mod errors;
 mod openstack;
 mod tailscale;
 mod tui;
 
-use anyhow::Result;
 use clap::{Parser, Subcommand};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use errors::Result;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 use std::io;
+use tracing::{error, info};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[derive(Parser)]
 #[command(name = "im-deploy")]
@@ -23,6 +28,10 @@ struct Cli {
     /// Automatically confirm prompts
     #[arg(short = 'y', long = "yes", global = true)]
     yes: bool,
+
+    /// Dry run mode - show what would be done without making changes
+    #[arg(long = "dry-run", global = true)]
+    dry_run: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -158,7 +167,18 @@ fn run_main_menu() -> Result<Option<Commands>> {
 }
 
 fn main() -> Result<()> {
+    // Initialize tracing with environment filter
+    // Use RUST_LOG env var to control log level, default to info
+    tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
     let cli = Cli::parse();
+
+    if cli.dry_run {
+        info!("🌵 DRY RUN MODE - No actual changes will be made");
+    }
 
     let command = match cli.command {
         Some(cmd) => cmd,
@@ -167,7 +187,7 @@ fn main() -> Result<()> {
             match run_main_menu()? {
                 Some(cmd) => cmd,
                 None => {
-                    println!("Exiting.");
+                    info!("Exiting");
                     return Ok(());
                 }
             }
@@ -175,14 +195,20 @@ fn main() -> Result<()> {
     };
 
     // Load configuration
-    let config = config::load_config()?;
+    let config = config::load_config(cli.dry_run)?;
 
-    match command {
+    let result = match command {
         Commands::Deploy => commands::cmd_deploy(&config, cli.yes),
         Commands::Destroy => commands::cmd_destroy(&config, cli.yes),
         Commands::Ssh => commands::cmd_ssh(&config),
         Commands::CopyKubeconfig => commands::cmd_copy_kubeconfig(&config),
         Commands::Monitor => commands::cmd_monitor(&config),
+    };
+
+    if let Err(ref e) = result {
+        error!("Command failed: {}", e);
     }
+
+    result
 }
 

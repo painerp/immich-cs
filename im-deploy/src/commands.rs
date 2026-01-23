@@ -1,4 +1,11 @@
-use anyhow::{bail, Context, Result};
+use crate::config::Config;
+use crate::domain::cluster::{CloudProvider, ServerInfo};
+use crate::domain::connection::ConnectionStrategy;
+use crate::errors::{Result, TerraformError};
+use crate::openstack::OpenStackClient;
+use crate::tailscale;
+use crate::tui::{run_cloud_provider_selector, run_server_selector};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::{
     io::{self, Write},
     path::PathBuf,
@@ -6,11 +13,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-
-use crate::config::Config;
-use crate::openstack::OpenStackClient;
-use crate::tailscale;
-use crate::tui::{run_cloud_provider_selector, run_server_selector, CloudProvider, ServerInfo};
+use tracing::{debug, info, warn};
 
 pub fn confirm_action(prompt: &str, default_yes: bool) -> Result<bool> {
     let suffix = if default_yes { "(Y/n)" } else { "(y/N)" };
@@ -32,7 +35,7 @@ pub fn confirm_action(prompt: &str, default_yes: bool) -> Result<bool> {
 fn ensure_terraform_initialized(terraform_bin: &str, terraform_dir: &PathBuf) -> Result<()> {
     let terraform_state_dir = terraform_dir.join(".terraform");
     if !terraform_state_dir.exists() {
-        println!("--- .terraform directory not found, running init first...");
+        info!(".terraform directory not found, running init first...");
         let init_status = Command::new(terraform_bin)
             .args(&["init", "-input=false"])
             .current_dir(terraform_dir)
@@ -40,18 +43,25 @@ fn ensure_terraform_initialized(terraform_bin: &str, terraform_dir: &PathBuf) ->
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .status()
-            .context("Failed to execute terraform init")?;
+            .map_err(|e| TerraformError::InitFailed(e.to_string()))?;
 
         if !init_status.success() {
-            bail!("Terraform init failed with exit code: {:?}", init_status.code());
+            return Err(TerraformError::InitFailed(format!(
+                "Exit code: {:?}",
+                init_status.code()
+            ))
+            .into());
         }
-        println!("--- Terraform init completed successfully\n");
+        info!("Terraform init completed successfully");
     }
     Ok(())
 }
 
 fn run_terraform_command(terraform_bin: &str, terraform_dir: &PathBuf, args: &[&str]) -> Result<()> {
     ensure_terraform_initialized(terraform_bin, terraform_dir)?;
+
+    let command_str = format!("{} {}", terraform_bin, args.join(" "));
+    debug!("Running: {}", command_str);
 
     let status = Command::new(terraform_bin)
         .args(args)
@@ -60,10 +70,17 @@ fn run_terraform_command(terraform_bin: &str, terraform_dir: &PathBuf, args: &[&
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .status()
-        .context("Failed to execute terraform command")?;
+        .map_err(|e| TerraformError::CommandFailed {
+            command: command_str.clone(),
+            code: None,
+        })?;
 
     if !status.success() {
-        bail!("Terraform command failed with exit code: {:?}", status.code());
+        return Err(TerraformError::CommandFailed {
+            command: command_str,
+            code: status.code(),
+        }
+        .into());
     }
 
     Ok(())
@@ -72,18 +89,23 @@ fn run_terraform_command(terraform_bin: &str, terraform_dir: &PathBuf, args: &[&
 fn get_terraform_outputs(terraform_bin: &str, terraform_dir: &PathBuf) -> Result<serde_json::Value> {
     ensure_terraform_initialized(terraform_bin, terraform_dir)?;
 
+    debug!("Getting terraform outputs");
+
     let output = Command::new(terraform_bin)
         .args(&["output", "-json"])
         .current_dir(terraform_dir)
         .output()
-        .context("Failed to get terraform outputs")?;
+        .map_err(|e| TerraformError::OutputParseFailed(e.to_string()))?;
 
     if !output.status.success() {
-        bail!("Failed to get terraform outputs");
+        return Err(TerraformError::OutputParseFailed(
+            "Command failed".to_string()
+        )
+        .into());
     }
 
     let outputs: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .context("Failed to parse terraform outputs")?;
+        .map_err(|e| TerraformError::OutputParseFailed(e.to_string()))?;
 
     Ok(outputs)
 }
@@ -182,7 +204,10 @@ fn extract_cloud_providers(terraform_bin: &str, terraform_dir: &PathBuf) -> Resu
     }
 
     if cloud_providers.is_empty() {
-        bail!("No cloud providers found in terraform outputs. Has the cluster been deployed?");
+        return Err(TerraformError::ResourceNotFound {
+            resource: "cloud providers".to_string(),
+        }
+        .into());
     }
 
     Ok(cloud_providers)
@@ -261,13 +286,13 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
         println!("\n=== Step 1: Cleaning up Tailscale devices ===\n");
 
         // Verify Tailscale connection before proceeding
-        if let Err(e) = tailscale::verify_tailscale_connection() {
-            eprintln!("Tailscale verification failed: {}", e);
+        if let Err(e) = tailscale::verify_tailscale_connection(Some(&ts_config.account_name)) {
+            warn!("Tailscale verification failed: {}", e);
             if !auto_confirm && !confirm_action("Continue without Tailscale cleanup?", false)? {
-                println!("Destroy cancelled.");
+                info!("Destroy cancelled");
                 return Ok(());
             }
-            println!("Skipping Tailscale cleanup...\n");
+            info!("Skipping Tailscale cleanup");
         } else {
             let cluster_tag = format!("{}-openstack", config.cluster_name);
 
@@ -277,8 +302,22 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
                 &cluster_tag,
             ) {
                 eprintln!("WARNING: Tailscale cleanup failed: {}", e);
-                eprintln!("         You may need to remove devices manually from https://login.tailscale.com/admin/machines");
-                eprintln!();
+            }
+
+            if let Err(e) = tailscale::cleanup_devices_by_tag(
+                &ts_config.api_key,
+                &ts_config.tailnet,
+                "k8s",
+            ) {
+                eprintln!("WARNING: Tailscale cleanup failed: {}", e);
+            }
+
+            if let Err(e) = tailscale::cleanup_devices_by_tag(
+                &ts_config.api_key,
+                &ts_config.tailnet,
+                "k8s-operator",
+            ) {
+                eprintln!("WARNING: Tailscale cleanup failed: {}", e);
             }
         }
     } else {
@@ -446,105 +485,57 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
 }
 
 pub fn cmd_ssh(config: &Config) -> Result<()> {
-    println!("Fetching server information...\n");
+    info!("Fetching server information");
 
     let cloud_providers = extract_cloud_providers(&config.terraform_bin, &config.terraform_dir)?;
 
     // If only one cloud provider, auto-select it
     let selected_provider = if cloud_providers.len() == 1 {
-        println!("Auto-selecting {} (only provider available)\n", cloud_providers[0].name);
+        info!("Auto-selecting {} (only provider available)", cloud_providers[0].name);
         cloud_providers.into_iter().next().unwrap()
     } else {
         // Show cloud provider selection
         match run_cloud_provider_selector(cloud_providers)? {
             Some(provider) => provider,
             None => {
-                println!("No cloud provider selected.");
+                info!("No cloud provider selected");
                 return Ok(());
             }
         }
     };
 
-    let servers = selected_provider.servers;
+    // Verify Tailscale connection if enabled
+    if selected_provider.tailscale_enabled {
+        if let Some(ref ts_config) = config.tailscale {
+            tailscale::verify_tailscale_connection(Some(&ts_config.account_name))?;
+        }
+    }
 
+    let servers = selected_provider.servers;
     let selected = run_server_selector(servers)?;
 
     if let Some(server) = selected {
-        // Determine connection method: Tailscale (preferred) or bastion
-        if selected_provider.tailscale_enabled {
-            // Verify Tailscale connection before attempting SSH
-            if let Err(e) = tailscale::verify_tailscale_connection() {
-                eprintln!("\nCannot use Tailscale connection: {}", e);
-                bail!("Tailscale verification failed");
-            }
-
-            if let Some(ref hostname) = server.tailscale_hostname {
-                println!("\nConnecting to {} via Tailscale (hostname: {})...\n",
-                    server.name, hostname);
-
-                let status = Command::new("ssh")
-                    .args(&[
-                        "-o",
-                        "StrictHostKeyChecking=no",
-                        &format!("ubuntu@{}", hostname),
-                    ])
-                    .stdin(Stdio::inherit())
-                    .stdout(Stdio::inherit())
-                    .stderr(Stdio::inherit())
-                    .status()
-                    .context("Failed to execute SSH")?;
-
-                if !status.success() {
-                    eprintln!("\nSSH connection via Tailscale failed!");
-                    eprintln!("Troubleshooting tips:");
-                    eprintln!("  1. Check if Tailscale is running on your machine: tailscale status");
-                    eprintln!("  2. Verify you can resolve the hostname: ping {}", hostname);
-                    eprintln!("  3. Check if the node is connected to Tailscale network");
-                    bail!("SSH connection failed");
-                }
-            } else {
-                bail!("Tailscale is enabled but hostname not found for server {}", server.name);
-            }
-        } else if let Some(ref bastion_ip) = selected_provider.bastion_ip {
-            println!("\nConnecting to {} ({}) via bastion host {}...\n",
-                server.name, server.ip, bastion_ip);
-
-            let status = Command::new("ssh")
-                .args(&[
-                    "-J",
-                    &format!("ubuntu@{}", bastion_ip),
-                    "-o",
-                    "StrictHostKeyChecking=no",
-                    &format!("ubuntu@{}", server.ip),
-                ])
-                .stdin(Stdio::inherit())
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .status()
-                .context("Failed to execute SSH")?;
-
-            if !status.success() {
-                bail!("SSH connection failed");
-            }
-        } else {
-            bail!("Neither Tailscale nor bastion host available for SSH connection. Cannot connect to servers.");
-        }
+        let strategy = ConnectionStrategy::from_server(&server, selected_provider.bastion_ip.as_deref())?;
+        info!("Connecting to {} via {:?}", server.name, strategy);
+        strategy.execute_interactive()?;
     } else {
-        println!("No server selected.");
+        info!("No server selected");
     }
 
     Ok(())
 }
 
 pub fn cmd_copy_kubeconfig(config: &Config) -> Result<()> {
-    println!("Fetching cluster information...\n");
+    info!("Fetching cluster information");
 
     let outputs = get_terraform_outputs(&config.terraform_bin, &config.terraform_dir)?;
     let cloud_providers = extract_cloud_providers(&config.terraform_bin, &config.terraform_dir)?;
 
     // Use the first available cloud provider
     let provider = cloud_providers.first()
-        .context("No cloud providers found")?;
+        .ok_or_else(|| TerraformError::ResourceNotFound {
+            resource: "cloud providers".to_string(),
+        })?;
 
     // Get the load balancer IP from primary_api_endpoint or from specific cloud provider
     let lb_floating_ip = if let Some(endpoint) = outputs.get("primary_api_endpoint")
@@ -557,60 +548,37 @@ pub fn cmd_copy_kubeconfig(config: &Config) -> Result<()> {
             .and_then(|v| v.get("value"))
             .and_then(|v| v.get("loadbalancer_ip"))
             .and_then(|v| v.as_str())
-            .context("Could not get load balancer IP")?
+            .ok_or_else(|| TerraformError::ResourceNotFound {
+                resource: "load balancer IP".to_string(),
+            })?
             .to_string()
     } else {
-        bail!("Could not determine load balancer IP");
+        return Err(TerraformError::ResourceNotFound {
+            resource: "load balancer IP".to_string(),
+        }
+        .into());
     };
 
     // Get the first server from the provider's servers
-    let server_0 = provider.servers
-        .iter()
-        .find(|s| s.name.contains("server"))
-        .context("Could not find k3s-server-0")?;
+    let server_0 = provider.get_first_server()
+        .ok_or_else(|| TerraformError::ResourceNotFound {
+            resource: "k3s-server-0".to_string(),
+        })?;
 
-    println!("Downloading kubeconfig from {}...", server_0.name);
+    info!("Downloading kubeconfig from {}", server_0.name);
 
-    let output = if provider.tailscale_enabled {
-        if let Some(ref hostname) = server_0.tailscale_hostname {
-            println!("Using Tailscale connection to {}", hostname);
-            Command::new("ssh")
-                .args(&[
-                    "-o",
-                    "StrictHostKeyChecking=no",
-                    &format!("ubuntu@{}", hostname),
-                    "sudo cat /home/ubuntu/.kube/config",
-                ])
-                .output()
-                .context("Failed to fetch kubeconfig via Tailscale SSH")?
-        } else {
-            bail!("Tailscale is enabled but hostname not found for server");
+    // Verify Tailscale if needed
+    if provider.tailscale_enabled {
+        if let Some(ref ts_config) = config.tailscale {
+            tailscale::verify_tailscale_connection(Some(&ts_config.account_name))?;
         }
-    } else if let Some(ref bastion_ip) = provider.bastion_ip {
-        println!("Using bastion host connection");
-        Command::new("ssh")
-            .args(&[
-                "-J",
-                &format!("ubuntu@{}", bastion_ip),
-                "-o",
-                "StrictHostKeyChecking=no",
-                &format!("ubuntu@{}", server_0.ip),
-                "sudo cat /home/ubuntu/.kube/config",
-            ])
-            .output()
-            .context("Failed to fetch kubeconfig via bastion SSH")?
-    } else {
-        bail!("Neither Tailscale nor bastion host available for SSH connection");
-    };
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!("SSH error: {}", stderr);
-        bail!("Failed to fetch kubeconfig from server");
     }
 
+    let strategy = ConnectionStrategy::from_server(server_0, provider.bastion_ip.as_deref())?;
+    let output = strategy.execute_command("sudo cat /home/ubuntu/.kube/config")?;
+
     let kubeconfig = String::from_utf8(output.stdout)
-        .context("Kubeconfig is not valid UTF-8")?;
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
     // Replace the server URL with the load balancer floating IP
     let kubeconfig = if let Some(start) = kubeconfig.find("server: https://") {
@@ -630,39 +598,41 @@ pub fn cmd_copy_kubeconfig(config: &Config) -> Result<()> {
 
     // Write to ./kubeconfig
     let output_path = std::env::current_dir()?.join("kubeconfig");
-    std::fs::write(&output_path, kubeconfig)
-        .context("Failed to write kubeconfig file")?;
+    std::fs::write(&output_path, kubeconfig)?;
 
-    println!("Kubeconfig saved to: {}", output_path.display());
-    println!("\nTo use it, run:");
-    println!("  export KUBECONFIG={}", output_path.display());
+    info!("Kubeconfig saved to: {}", output_path.display());
+    info!("To use it, run: export KUBECONFIG={}", output_path.display());
 
     Ok(())
 }
 
 pub fn cmd_monitor(config: &Config) -> Result<()> {
-    println!("Fetching cluster information...\n");
+    info!("Fetching cluster information");
 
     let outputs = get_terraform_outputs(&config.terraform_bin, &config.terraform_dir)?;
     let cloud_providers = extract_cloud_providers(&config.terraform_bin, &config.terraform_dir)?;
 
     // Use the first available cloud provider for monitoring
     let provider = cloud_providers.first()
-        .context("No cloud providers found")?;
+        .ok_or_else(|| TerraformError::ResourceNotFound {
+            resource: "cloud providers".to_string(),
+        })?;
 
     // Verify Tailscale connection if enabled
     if provider.tailscale_enabled {
-        if let Err(e) = tailscale::verify_tailscale_connection() {
-            eprintln!("Tailscale verification failed: {}", e);
-            bail!("Cannot monitor via Tailscale");
+        if let Some(ref ts_config) = config.tailscale {
+            tailscale::verify_tailscale_connection(Some(&ts_config.account_name))?;
         }
     }
 
     // Get the first server
-    let server_0 = provider.servers
-        .iter()
-        .find(|s| s.name.contains("server"))
-        .context("Could not find k3s-server-0")?;
+    let server_0 = provider.get_first_server()
+        .ok_or_else(|| TerraformError::ResourceNotFound {
+            resource: "k3s-server-0".to_string(),
+        })?;
+
+    // Create connection strategy for reuse
+    let strategy = ConnectionStrategy::from_server(server_0, provider.bastion_ip.as_deref())?;
 
     // Count expected nodes from aggregated outputs or from cloud provider
     let server_count = outputs
@@ -670,19 +640,22 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
         .and_then(|v| v.get("value"))
         .and_then(|v| v.as_array())
         .map(|arr| arr.len())
-        .unwrap_or_else(|| provider.servers.iter().filter(|s| s.name.contains("server")).count());
+        .unwrap_or_else(|| provider.server_count());
 
     let agent_count = outputs
         .get("all_agent_ips")
         .and_then(|v| v.get("value"))
         .and_then(|v| v.as_array())
         .map(|arr| arr.len())
-        .unwrap_or_else(|| provider.servers.iter().filter(|s| s.name.contains("agent")).count());
+        .unwrap_or_else(|| provider.agent_count());
 
     let expected_nodes = server_count + agent_count;
 
     if expected_nodes == 0 {
-        bail!("No nodes found in Terraform outputs. Check all_server_ips and all_agent_ips.");
+        return Err(TerraformError::ResourceNotFound {
+            resource: "nodes (check all_server_ips and all_agent_ips)".to_string(),
+        }
+        .into());
     }
 
     // Check if GPU Operator and ArgoCD are enabled
@@ -741,33 +714,8 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
         println!("Connection: {}", connection_method);
         println!("================================\n");
 
-        // Try to get cluster status with appropriate connection method
-        let output = if provider.tailscale_enabled {
-            if let Some(ref hostname) = server_0.tailscale_hostname {
-                Command::new("ssh")
-                    .args(&[
-                        "-o", "StrictHostKeyChecking=no",
-                        "-o", "ConnectTimeout=10",
-                        &format!("ubuntu@{}", hostname),
-                        "sudo kubectl get nodes --no-headers 2>/dev/null",
-                    ])
-                    .output()
-            } else {
-                bail!("Tailscale hostname not found for server");
-            }
-        } else if let Some(ref bastion_ip) = provider.bastion_ip {
-            Command::new("ssh")
-                .args(&[
-                    "-o", "StrictHostKeyChecking=no",
-                    "-o", "ConnectTimeout=10",
-                    "-J", &format!("ubuntu@{}", bastion_ip),
-                    &format!("ubuntu@{}", server_0.ip),
-                    "sudo kubectl get nodes --no-headers 2>/dev/null",
-                ])
-                .output()
-        } else {
-            bail!("Neither Tailscale nor bastion host available for monitoring");
-        };
+        // Try to get cluster status
+        let output = strategy.execute_command("sudo kubectl get nodes --no-headers 2>/dev/null");
 
         match output {
             Ok(result) if result.status.success() => {
@@ -790,32 +738,9 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
                         println!("\nAll {} nodes are Ready!", expected_nodes);
 
                         // Get detailed node info
-                        let detail_output = if provider.tailscale_enabled {
-                            if let Some(ref hostname) = server_0.tailscale_hostname {
-                                Command::new("ssh")
-                                    .args(&[
-                                        "-o", "StrictHostKeyChecking=no",
-                                        &format!("ubuntu@{}", hostname),
-                                        "sudo kubectl get nodes -o wide",
-                                    ])
-                                    .output()?
-                            } else {
-                                bail!("Tailscale hostname not found");
-                            }
-                        } else if let Some(ref bastion_ip) = provider.bastion_ip {
-                            Command::new("ssh")
-                                .args(&[
-                                    "-o", "StrictHostKeyChecking=no",
-                                    "-J", &format!("ubuntu@{}", bastion_ip),
-                                    &format!("ubuntu@{}", server_0.ip),
-                                    "sudo kubectl get nodes -o wide",
-                                ])
-                                .output()?
-                        } else {
-                            bail!("Neither Tailscale nor bastion host available");
-                        };
+                        let detail_output = strategy.execute_command("sudo kubectl get nodes -o wide");
 
-                        if detail_output.status.success() {
+                        if let Ok(detail_output) = detail_output {
                             println!("\n{}", String::from_utf8_lossy(&detail_output.stdout));
                         }
 
@@ -848,32 +773,7 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
             let secs = elapsed.as_secs() % 60;
 
             // Check k3s-server.log first to see if we've reached GPU installation
-            let server_log_cmd = if provider.tailscale_enabled {
-                if let Some(ref hostname) = server_0.tailscale_hostname {
-                    Command::new("ssh")
-                        .args(&[
-                            "-o", "StrictHostKeyChecking=no",
-                            "-o", "ConnectTimeout=10",
-                            &format!("ubuntu@{}", hostname),
-                            "sudo cat /var/log/k3s-server.log 2>/dev/null",
-                        ])
-                        .output()
-                } else {
-                    bail!("Tailscale hostname not found");
-                }
-            } else if let Some(ref bastion_ip) = provider.bastion_ip {
-                Command::new("ssh")
-                    .args(&[
-                        "-o", "StrictHostKeyChecking=no",
-                        "-o", "ConnectTimeout=10",
-                        "-J", &format!("ubuntu@{}", bastion_ip),
-                        &format!("ubuntu@{}", server_0.ip),
-                        "sudo cat /var/log/k3s-server.log 2>/dev/null",
-                    ])
-                    .output()
-            } else {
-                bail!("Neither Tailscale nor bastion host available");
-            };
+            let server_log_cmd = strategy.execute_command("sudo cat /var/log/k3s-server.log 2>/dev/null");
 
             if let Ok(result) = server_log_cmd {
                 if result.status.success() {
@@ -889,7 +789,10 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
                             println!("\nERROR detected in k3s-server.log before GPU installation!");
                             println!("Full k3s-server.log:\n");
                             println!("{}", server_log);
-                            bail!("Server initialization failed");
+                            return Err(TerraformError::CommandFailed {
+                                command: "k3s-server initialization".to_string(),
+                                code: None,
+                            }.into());
                         }
                     }
 
@@ -898,32 +801,7 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
                         println!("GPU Operator installation started...");
 
                         // Now check the GPU operator log
-                        let gpu_log_cmd = if provider.tailscale_enabled {
-                            if let Some(ref hostname) = server_0.tailscale_hostname {
-                                Command::new("ssh")
-                                    .args(&[
-                                        "-o", "StrictHostKeyChecking=no",
-                                        "-o", "ConnectTimeout=10",
-                                        &format!("ubuntu@{}", hostname),
-                                        "sudo tail -n 5 /var/log/gpu-operator-install.log 2>/dev/null",
-                                    ])
-                                    .output()
-                            } else {
-                                bail!("Tailscale hostname not found");
-                            }
-                        } else if let Some(ref bastion_ip) = provider.bastion_ip {
-                            Command::new("ssh")
-                                .args(&[
-                                    "-o", "StrictHostKeyChecking=no",
-                                    "-o", "ConnectTimeout=10",
-                                    "-J", &format!("ubuntu@{}", bastion_ip),
-                                    &format!("ubuntu@{}", server_0.ip),
-                                    "sudo tail -n 5 /var/log/gpu-operator-install.log 2>/dev/null",
-                                ])
-                                .output()
-                        } else {
-                            bail!("Neither Tailscale nor bastion host available");
-                        };
+                        let gpu_log_cmd = strategy.execute_command("sudo tail -n 5 /var/log/gpu-operator-install.log 2>/dev/null");
 
                         if let Ok(log_result) = gpu_log_cmd {
                             if log_result.status.success() {
@@ -947,38 +825,17 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
                                 if gpu_log.contains("ERROR") {
                                     println!("\nERROR detected in GPU Operator installation!");
                                     // Get full log
-                                    let full_log_cmd = if provider.tailscale_enabled {
-                                        if let Some(ref hostname) = server_0.tailscale_hostname {
-                                            Command::new("ssh")
-                                                .args(&[
-                                                    "-o", "StrictHostKeyChecking=no",
-                                                    &format!("ubuntu@{}", hostname),
-                                                    "sudo cat /var/log/gpu-operator-install.log",
-                                                ])
-                                                .output()
-                                        } else {
-                                            bail!("Tailscale hostname not found");
-                                        }
-                                    } else if let Some(ref bastion_ip) = provider.bastion_ip {
-                                        Command::new("ssh")
-                                            .args(&[
-                                                "-o", "StrictHostKeyChecking=no",
-                                                "-J", &format!("ubuntu@{}", bastion_ip),
-                                                &format!("ubuntu@{}", server_0.ip),
-                                                "sudo cat /var/log/gpu-operator-install.log",
-                                            ])
-                                            .output()
-                                    } else {
-                                        bail!("Neither Tailscale nor bastion host available");
-                                    };
+                                    let full_log_cmd = strategy.execute_command("sudo cat /var/log/gpu-operator-install.log");
 
                                     if let Ok(full_result) = full_log_cmd {
-                                        if full_result.status.success() {
-                                            println!("\nFull GPU Operator log:");
-                                            println!("{}", String::from_utf8_lossy(&full_result.stdout));
-                                        }
+                                        println!("\nFull GPU Operator log:");
+                                        println!("{}", String::from_utf8_lossy(&full_result.stdout));
                                     }
-                                    bail!("GPU Operator installation failed");
+
+                                    return Err(TerraformError::CommandFailed {
+                                        command: "GPU Operator installation".to_string(),
+                                        code: None,
+                                    }.into());
                                 }
 
                                 // Check for warnings
@@ -1013,32 +870,7 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
             let secs = elapsed.as_secs() % 60;
 
             // Check k3s-server.log first to see if we've reached ArgoCD installation
-            let server_log_cmd = if provider.tailscale_enabled {
-                if let Some(ref hostname) = server_0.tailscale_hostname {
-                    Command::new("ssh")
-                        .args(&[
-                            "-o", "StrictHostKeyChecking=no",
-                            "-o", "ConnectTimeout=10",
-                            &format!("ubuntu@{}", hostname),
-                            "sudo cat /var/log/k3s-server.log 2>/dev/null",
-                        ])
-                        .output()
-                } else {
-                    bail!("Tailscale hostname not found");
-                }
-            } else if let Some(ref bastion_ip) = provider.bastion_ip {
-                Command::new("ssh")
-                    .args(&[
-                        "-o", "StrictHostKeyChecking=no",
-                        "-o", "ConnectTimeout=10",
-                        "-J", &format!("ubuntu@{}", bastion_ip),
-                        &format!("ubuntu@{}", server_0.ip),
-                        "sudo cat /var/log/k3s-server.log 2>/dev/null",
-                    ])
-                    .output()
-            } else {
-                bail!("Neither Tailscale nor bastion host available");
-            };
+            let server_log_cmd = strategy.execute_command("sudo cat /var/log/k3s-server.log 2>/dev/null");
 
             if let Ok(result) = server_log_cmd {
                 if result.status.success() {
@@ -1054,7 +886,10 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
                             println!("\nERROR detected in k3s-server.log before ArgoCD installation!");
                             println!("Full k3s-server.log:\n");
                             println!("{}", server_log);
-                            bail!("Server initialization failed");
+                            return Err(TerraformError::CommandFailed {
+                                command: "k3s-server initialization".to_string(),
+                                code: None,
+                            }.into());
                         }
                     }
 
@@ -1063,32 +898,7 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
                         println!("ArgoCD installation started...");
 
                         // Now check the ArgoCD log
-                        let argocd_log_cmd = if provider.tailscale_enabled {
-                            if let Some(ref hostname) = server_0.tailscale_hostname {
-                                Command::new("ssh")
-                                    .args(&[
-                                        "-o", "StrictHostKeyChecking=no",
-                                        "-o", "ConnectTimeout=10",
-                                        &format!("ubuntu@{}", hostname),
-                                        "sudo tail -n 5 /var/log/argocd-install.log 2>/dev/null",
-                                    ])
-                                    .output()
-                            } else {
-                                bail!("Tailscale hostname not found");
-                            }
-                        } else if let Some(ref bastion_ip) = provider.bastion_ip {
-                            Command::new("ssh")
-                                .args(&[
-                                    "-o", "StrictHostKeyChecking=no",
-                                    "-o", "ConnectTimeout=10",
-                                    "-J", &format!("ubuntu@{}", bastion_ip),
-                                    &format!("ubuntu@{}", server_0.ip),
-                                    "sudo tail -n 5 /var/log/argocd-install.log 2>/dev/null",
-                                ])
-                                .output()
-                        } else {
-                            bail!("Neither Tailscale nor bastion host available");
-                        };
+                        let argocd_log_cmd = strategy.execute_command("sudo tail -n 5 /var/log/argocd-install.log 2>/dev/null");
 
                         if let Ok(log_result) = argocd_log_cmd {
                             if log_result.status.success() {
@@ -1112,38 +922,17 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
                                 if argocd_log.contains("ERROR") {
                                     println!("\nERROR detected in ArgoCD installation!");
                                     // Get full log
-                                    let full_log_cmd = if provider.tailscale_enabled {
-                                        if let Some(ref hostname) = server_0.tailscale_hostname {
-                                            Command::new("ssh")
-                                                .args(&[
-                                                    "-o", "StrictHostKeyChecking=no",
-                                                    &format!("ubuntu@{}", hostname),
-                                                    "sudo cat /var/log/argocd-install.log",
-                                                ])
-                                                .output()
-                                        } else {
-                                            bail!("Tailscale hostname not found");
-                                        }
-                                    } else if let Some(ref bastion_ip) = provider.bastion_ip {
-                                        Command::new("ssh")
-                                            .args(&[
-                                                "-o", "StrictHostKeyChecking=no",
-                                                "-J", &format!("ubuntu@{}", bastion_ip),
-                                                &format!("ubuntu@{}", server_0.ip),
-                                                "sudo cat /var/log/argocd-install.log",
-                                            ])
-                                            .output()
-                                    } else {
-                                        bail!("Neither Tailscale nor bastion host available");
-                                    };
+                                    let full_log_cmd = strategy.execute_command("sudo cat /var/log/argocd-install.log");
 
                                     if let Ok(full_result) = full_log_cmd {
-                                        if full_result.status.success() {
-                                            println!("\nFull ArgoCD log:");
-                                            println!("{}", String::from_utf8_lossy(&full_result.stdout));
-                                        }
+                                        println!("\nFull ArgoCD log:");
+                                        println!("{}", String::from_utf8_lossy(&full_result.stdout));
                                     }
-                                    bail!("ArgoCD installation failed");
+
+                                    return Err(TerraformError::CommandFailed {
+                                        command: "ArgoCD installation".to_string(),
+                                        code: None,
+                                    }.into());
                                 }
 
                                 // Check for warnings
@@ -1178,32 +967,7 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
             let secs = elapsed.as_secs() % 60;
 
             // Check k3s-server.log first to see if we've reached Tailscale serve setup
-            let server_log_cmd = if provider.tailscale_enabled {
-                if let Some(ref hostname) = server_0.tailscale_hostname {
-                    Command::new("ssh")
-                        .args(&[
-                            "-o", "StrictHostKeyChecking=no",
-                            "-o", "ConnectTimeout=10",
-                            &format!("ubuntu@{}", hostname),
-                            "sudo cat /var/log/k3s-server.log 2>/dev/null",
-                        ])
-                        .output()
-                } else {
-                    bail!("Tailscale hostname not found");
-                }
-            } else if let Some(ref bastion_ip) = provider.bastion_ip {
-                Command::new("ssh")
-                    .args(&[
-                        "-o", "StrictHostKeyChecking=no",
-                        "-o", "ConnectTimeout=10",
-                        "-J", &format!("ubuntu@{}", bastion_ip),
-                        &format!("ubuntu@{}", server_0.ip),
-                        "sudo cat /var/log/k3s-server.log 2>/dev/null",
-                    ])
-                    .output()
-            } else {
-                bail!("Neither Tailscale nor bastion host available");
-            };
+            let server_log_cmd = strategy.execute_command("sudo cat /var/log/k3s-server.log 2>/dev/null");
 
             if let Ok(result) = server_log_cmd {
                 if result.status.success() {
@@ -1219,7 +983,10 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
                             println!("\nERROR detected in k3s-server.log before Tailscale serve setup!");
                             println!("Full k3s-server.log:\n");
                             println!("{}", server_log);
-                            bail!("Server initialization failed");
+                            return Err(TerraformError::CommandFailed {
+                                command: "k3s-server initialization".to_string(),
+                                code: None,
+                            }.into());
                         }
                     }
 
@@ -1228,32 +995,7 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
                         println!("Tailscale ArgoCD Serve setup started...");
 
                         // Now check the tailscale-argocd-serve log
-                        let serve_log_cmd = if provider.tailscale_enabled {
-                            if let Some(ref hostname) = server_0.tailscale_hostname {
-                                Command::new("ssh")
-                                    .args(&[
-                                        "-o", "StrictHostKeyChecking=no",
-                                        "-o", "ConnectTimeout=10",
-                                        &format!("ubuntu@{}", hostname),
-                                        "sudo tail -n 5 /var/log/tailscale-argocd-serve.log 2>/dev/null",
-                                    ])
-                                    .output()
-                            } else {
-                                bail!("Tailscale hostname not found");
-                            }
-                        } else if let Some(ref bastion_ip) = provider.bastion_ip {
-                            Command::new("ssh")
-                                .args(&[
-                                    "-o", "StrictHostKeyChecking=no",
-                                    "-o", "ConnectTimeout=10",
-                                    "-J", &format!("ubuntu@{}", bastion_ip),
-                                    &format!("ubuntu@{}", server_0.ip),
-                                    "sudo tail -n 5 /var/log/tailscale-argocd-serve.log 2>/dev/null",
-                                ])
-                                .output()
-                        } else {
-                            bail!("Neither Tailscale nor bastion host available");
-                        };
+                        let serve_log_cmd = strategy.execute_command("sudo tail -n 5 /var/log/tailscale-argocd-serve.log 2>/dev/null");
 
                         if let Ok(log_result) = serve_log_cmd {
                             if log_result.status.success() {
@@ -1272,39 +1014,14 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
                                     println!("\nTailscale ArgoCD Serve setup complete!");
 
                                     // Get the full log to show access information
-                                    let full_log_cmd = if provider.tailscale_enabled {
-                                        if let Some(ref hostname) = server_0.tailscale_hostname {
-                                            Command::new("ssh")
-                                                .args(&[
-                                                    "-o", "StrictHostKeyChecking=no",
-                                                    &format!("ubuntu@{}", hostname),
-                                                    "sudo cat /var/log/tailscale-argocd-serve.log",
-                                                ])
-                                                .output()
-                                        } else {
-                                            bail!("Tailscale hostname not found");
-                                        }
-                                    } else if let Some(ref bastion_ip) = provider.bastion_ip {
-                                        Command::new("ssh")
-                                            .args(&[
-                                                "-o", "StrictHostKeyChecking=no",
-                                                "-J", &format!("ubuntu@{}", bastion_ip),
-                                                &format!("ubuntu@{}", server_0.ip),
-                                                "sudo cat /var/log/tailscale-argocd-serve.log",
-                                            ])
-                                            .output()
-                                    } else {
-                                        bail!("Neither Tailscale nor bastion host available");
-                                    };
+                                    let full_log_cmd = strategy.execute_command("sudo cat /var/log/tailscale-argocd-serve.log");
 
                                     if let Ok(full_result) = full_log_cmd {
-                                        if full_result.status.success() {
-                                            let full_log = String::from_utf8_lossy(&full_result.stdout);
-                                            // Extract the access information section
-                                            if let Some(start) = full_log.find("====================================================================") {
-                                                if let Some(info_section) = full_log[start..].lines().take(10).collect::<Vec<_>>().join("\n").into() {
-                                                    println!("\n{}", info_section);
-                                                }
+                                        let full_log = String::from_utf8_lossy(&full_result.stdout);
+                                        // Extract the access information section
+                                        if let Some(start) = full_log.find("====================================================================") {
+                                            if let Some(info_section) = full_log[start..].lines().take(10).collect::<Vec<_>>().join("\n").into() {
+                                                println!("\n{}", info_section);
                                             }
                                         }
                                     }
@@ -1315,38 +1032,17 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
                                 if serve_log.contains("ERROR") {
                                     println!("\nERROR detected in Tailscale ArgoCD Serve setup!");
                                     // Get full log
-                                    let full_log_cmd = if provider.tailscale_enabled {
-                                        if let Some(ref hostname) = server_0.tailscale_hostname {
-                                            Command::new("ssh")
-                                                .args(&[
-                                                    "-o", "StrictHostKeyChecking=no",
-                                                    &format!("ubuntu@{}", hostname),
-                                                    "sudo cat /var/log/tailscale-argocd-serve.log",
-                                                ])
-                                                .output()
-                                        } else {
-                                            bail!("Tailscale hostname not found");
-                                        }
-                                    } else if let Some(ref bastion_ip) = provider.bastion_ip {
-                                        Command::new("ssh")
-                                            .args(&[
-                                                "-o", "StrictHostKeyChecking=no",
-                                                "-J", &format!("ubuntu@{}", bastion_ip),
-                                                &format!("ubuntu@{}", server_0.ip),
-                                                "sudo cat /var/log/tailscale-argocd-serve.log",
-                                            ])
-                                            .output()
-                                    } else {
-                                        bail!("Neither Tailscale nor bastion host available");
-                                    };
+                                    let full_log_cmd = strategy.execute_command("sudo cat /var/log/tailscale-argocd-serve.log");
 
                                     if let Ok(full_result) = full_log_cmd {
-                                        if full_result.status.success() {
-                                            println!("\nFull Tailscale ArgoCD Serve log:");
-                                            println!("{}", String::from_utf8_lossy(&full_result.stdout));
-                                        }
+                                        println!("\nFull Tailscale ArgoCD Serve log:");
+                                        println!("{}", String::from_utf8_lossy(&full_result.stdout));
                                     }
-                                    bail!("Tailscale ArgoCD Serve setup failed");
+
+                                    return Err(TerraformError::CommandFailed {
+                                        command: "Tailscale ArgoCD Serve setup".to_string(),
+                                        code: None,
+                                    }.into());
                                 }
 
                                 // Check for warnings

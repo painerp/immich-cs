@@ -1,7 +1,9 @@
-use anyhow::{Context, Result};
+use crate::constants::network;
+use crate::errors::{Result, TailscaleError};
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use std::process::Command;
+use tracing::{debug, info, warn};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,11 +51,12 @@ struct CurrentTailnet {
 }
 
 pub fn cleanup_devices_by_tag(api_key: &str, tailnet: &str, cluster_tag: &str) -> Result<()> {
-    println!("Searching for Tailscale devices with tag: {}", cluster_tag);
+    info!("Searching for Tailscale devices with tag: {}", cluster_tag);
 
     let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()?;
+        .timeout(std::time::Duration::from_secs(network::HTTP_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| TailscaleError::ApiError(e.to_string()))?;
 
     // List all devices
     let url = format!("https://api.tailscale.com/api/v2/tailnet/{}/devices", tailnet);
@@ -61,32 +64,26 @@ pub fn cleanup_devices_by_tag(api_key: &str, tailnet: &str, cluster_tag: &str) -
         .get(&url)
         .bearer_auth(api_key)
         .send()
-        .context("Failed to list Tailscale devices")?;
+        .map_err(|e| TailscaleError::ApiError(format!("Failed to list devices: {}", e)))?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().unwrap_or_default();
-        return Err(anyhow::anyhow!(
-            "Tailscale API error ({}): {}",
+        return Err(TailscaleError::ApiError(format!(
+            "API returned {}: {}",
             status,
             body
-        ));
+        )).into());
     }
 
     // Get response text first for better error handling
     let response_text = response
         .text()
-        .context("Failed to read Tailscale API response")?;
+        .map_err(|e| TailscaleError::ApiError(format!("Failed to read response: {}", e)))?;
 
     // Try to parse as JSON
     let devices_response: DevicesResponse = serde_json::from_str(&response_text)
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to parse Tailscale devices response: {}\nResponse body: {}",
-                e,
-                response_text
-            )
-        })?;
+        .map_err(|e| TailscaleError::ParseError(format!("{}: {}", e, response_text)))?;
 
     // Filter devices by cluster tag
     let matching_devices: Vec<&Device> = devices_response
@@ -96,13 +93,13 @@ pub fn cleanup_devices_by_tag(api_key: &str, tailnet: &str, cluster_tag: &str) -
         .collect();
 
     if matching_devices.is_empty() {
-        println!("  -> No Tailscale devices found with tag '{}'", cluster_tag);
+        info!("No Tailscale devices found with tag '{}'", cluster_tag);
         return Ok(());
     }
 
-    println!("  Found {} device(s) to delete:", matching_devices.len());
+    info!("Found {} device(s) to delete:", matching_devices.len());
     for device in &matching_devices {
-        println!("    - {} ({})", device.display_name(), device.id);
+        info!("  - {} ({})", device.display_name(), device.id);
     }
 
     // Delete each device
@@ -117,100 +114,93 @@ pub fn cleanup_devices_by_tag(api_key: &str, tailnet: &str, cluster_tag: &str) -
             .send()
         {
             Ok(resp) if resp.status().is_success() => {
-                println!("    -> Deleted device: {}", device.display_name());
+                info!("Deleted device: {}", device.display_name());
                 deleted_count += 1;
             }
             Ok(resp) => {
                 let status = resp.status();
                 let body = resp.text().unwrap_or_default();
-                eprintln!("    ERROR: Failed to delete {}: {} - {}", device.display_name(), status, body);
+                warn!("Failed to delete {}: {} - {}", device.display_name(), status, body);
                 failed_count += 1;
             }
             Err(e) => {
-                eprintln!("    ERROR: Failed to delete {}: {}", device.display_name(), e);
+                warn!("Failed to delete {}: {}", device.display_name(), e);
                 failed_count += 1;
             }
         }
     }
 
-    println!("\nTailscale cleanup complete: {} deleted, {} failed", deleted_count, failed_count);
+    info!("Tailscale cleanup complete: {} deleted, {} failed", deleted_count, failed_count);
 
     if failed_count > 0 {
-        println!("WARNING: Some devices could not be deleted. You may need to remove them manually from the Tailscale admin console.");
+        warn!("Some devices could not be deleted. You may need to remove them manually from the Tailscale admin console.");
     }
 
     Ok(())
 }
 
-pub fn verify_tailscale_connection() -> Result<()> {
+pub fn verify_tailscale_connection(expected_tailnet: Option<&str>) -> Result<()> {
+    debug!("Verifying Tailscale connection");
+
     // Check if tailscale is installed
     let which_status = Command::new("which")
         .arg("tailscale")
         .output();
 
     if which_status.is_err() || !which_status.unwrap().status.success() {
-        eprintln!("WARNING: Tailscale CLI not found on this system");
-        eprintln!("         Please install Tailscale to use Tailscale features");
-        return Err(anyhow::anyhow!("Tailscale CLI not installed"));
+        warn!("Tailscale CLI not found on this system");
+        return Err(TailscaleError::CliNotInstalled.into());
     }
 
     // Get tailscale status
     let status_output = Command::new("tailscale")
         .args(&["status", "--json"])
         .output()
-        .context("Failed to execute 'tailscale status --json'")?;
+        .map_err(|e| TailscaleError::ApiError(format!("Failed to execute 'tailscale status': {}", e)))?;
 
     if !status_output.status.success() {
-        eprintln!("WARNING: Failed to get Tailscale status");
-        eprintln!("         Make sure Tailscale is running: sudo systemctl start tailscaled");
-        return Err(anyhow::anyhow!("Failed to get Tailscale status"));
+        warn!("Failed to get Tailscale status. Make sure Tailscale is running: sudo systemctl start tailscaled");
+        return Err(TailscaleError::NotRunning("unknown".to_string()).into());
     }
 
     let status: TailscaleStatus = serde_json::from_slice(&status_output.stdout)
-        .context("Failed to parse Tailscale status JSON")?;
+        .map_err(|e| TailscaleError::ParseError(format!("Failed to parse status JSON: {}", e)))?;
 
     // Check if Tailscale is running
     if status.backend_state != "Running" {
-        eprintln!("WARNING: Tailscale is not running (state: {})", status.backend_state);
-        eprintln!("         Please start Tailscale: sudo tailscale up");
-        return Err(anyhow::anyhow!("Tailscale is not running"));
+        warn!("Tailscale is not running (state: {}). Please start Tailscale: sudo tailscale up", status.backend_state);
+        return Err(TailscaleError::NotRunning(status.backend_state).into());
     }
 
-    // Check if connected to the correct tailnet
-    if let Some(tailnet) = status.current_tailnet {
-        if tailnet.name != "cloudserv11.github" {
-            eprintln!("WARNING: Connected to wrong Tailscale account");
-            eprintln!("         Current account: {}", tailnet.name);
-            eprintln!("         Expected account: cloudserv11.github");
-            eprintln!();
+    // Check if connected to the correct tailnet (if expected_tailnet is provided)
+    if let (Some(expected), Some(current_tailnet)) = (expected_tailnet, status.current_tailnet) {
+        if current_tailnet.name != expected {
+            warn!("Connected to wrong Tailscale account. Current: {}, Expected: {}", current_tailnet.name, expected);
 
-            print!("Would you like to switch to cloudserv11.github? (y/N): ");
+            print!("Would you like to switch to {}? (y/N): ", expected);
             std::io::Write::flush(&mut std::io::stdout())?;
 
             let mut input = String::new();
             std::io::stdin().read_line(&mut input)?;
 
             if input.trim().eq_ignore_ascii_case("y") {
-                println!("Switching Tailscale account to cloudserv11.github...");
+                info!("Switching Tailscale account to {}...", expected);
                 let switch_status = Command::new("sudo")
-                    .args(&["tailscale", "switch", "cloudserv11.github"])
+                    .args(&["tailscale", "switch", expected])
                     .status()
-                    .context("Failed to switch Tailscale account")?;
+                    .map_err(|_| TailscaleError::AccountSwitchFailed)?;
 
                 if !switch_status.success() {
-                    return Err(anyhow::anyhow!("Failed to switch Tailscale account"));
+                    return Err(TailscaleError::AccountSwitchFailed.into());
                 }
-
-                println!("Successfully switched to cloudserv11.github");
+                info!("Successfully switched to {}", expected);
             } else {
-                println!("Continuing with current account (operations may fail)...");
+                warn!("Continuing with current account (operations may fail)...");
             }
         }
-    } else {
-        eprintln!("WARNING: Could not determine current Tailscale account");
-        eprintln!("         Please verify you are connected to cloudserv11.github");
     }
 
+    debug!("Tailscale connection verified");
     Ok(())
 }
 
