@@ -1101,3 +1101,139 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
     Ok(())
 }
 
+pub fn cmd_info(config: &Config) -> Result<()> {
+    use crate::domain::services::{get_k8s_secret, ServiceInfo};
+
+    info!("Fetching cluster information");
+
+    let cloud_providers = extract_cloud_providers(&config.terraform_bin, &config.terraform_dir)?;
+
+    // Use the first available cloud provider
+    let provider = cloud_providers.first()
+        .ok_or_else(|| TerraformError::ResourceNotFound {
+            resource: "cloud providers".to_string(),
+        })?;
+
+    // Verify Tailscale connection if enabled
+    if provider.tailscale_enabled {
+        if let Some(ref ts_config) = config.tailscale {
+            tailscale::verify_tailscale_connection(Some(&ts_config.account_name))?;
+        }
+    }
+
+    // Get the first server to connect to
+    let server_0 = provider.get_first_server()
+        .ok_or_else(|| TerraformError::ResourceNotFound {
+            resource: "k3s-server-0".to_string(),
+        })?;
+
+    info!("Connecting to {} to retrieve service information", server_0.name);
+
+    let strategy = ConnectionStrategy::from_server(server_0, provider.bastion_ip.as_deref())?;
+
+    let mut services = Vec::new();
+
+    // Get Tailscale MagicDNS suffix for URL construction (only if Tailscale is enabled)
+    let dns_suffix = if provider.tailscale_enabled {
+        match tailscale::get_magic_dns_suffix() {
+            Ok(suffix) => {
+                info!("Using Tailscale MagicDNS suffix: {}", suffix);
+                Some(suffix)
+            }
+            Err(e) => {
+                warn!("Failed to retrieve Tailscale MagicDNS suffix: {}", e);
+                warn!("Service URLs will not be available. Ensure Tailscale is running and MagicDNS is enabled.");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    println!("\n=== Deployed Services Information ===\n");
+
+    // ArgoCD
+    info!("Retrieving ArgoCD info");
+    let argocd_password = get_k8s_secret(&strategy, "argocd-initial-admin-secret", "argocd", "password")
+        .unwrap_or_else(|_| "N/A (secret not found)".to_string());
+
+    let argocd_url = if let Some(ref suffix) = dns_suffix {
+        format!("https://argocd.{}", suffix)
+    } else {
+        "Check Tailscale or ingress".to_string()
+    };
+
+    let argocd_info = ServiceInfo::new("ArgoCD")
+        .with_url(argocd_url)
+        .with_credentials("admin".to_string(), argocd_password);
+
+    println!("{}", argocd_info);
+    services.push(argocd_info);
+
+    // Longhorn
+    info!("Retrieving Longhorn info");
+    let longhorn_url = if let Some(ref suffix) = dns_suffix {
+        format!("https://longhorn.{}", suffix)
+    } else {
+        "Check Tailscale or ingress".to_string()
+    };
+
+    let longhorn_info = ServiceInfo::new("Longhorn")
+        .with_url(longhorn_url);
+
+    println!("{}", longhorn_info);
+    services.push(longhorn_info);
+
+    // Prometheus
+    info!("Retrieving Prometheus info");
+    let prometheus_url = if let Some(ref suffix) = dns_suffix {
+        format!("https://prometheus.{}", suffix)
+    } else {
+        "Check Tailscale or ingress".to_string()
+    };
+
+    let prometheus_info = ServiceInfo::new("Prometheus")
+        .with_url(prometheus_url);
+
+    println!("{}", prometheus_info);
+    services.push(prometheus_info);
+
+    // Grafana
+    info!("Retrieving Grafana info");
+    let grafana_password = get_k8s_secret(&strategy, "prometheus-grafana", "prometheus-system", "admin-password")
+        .unwrap_or_else(|_| "N/A (secret not found)".to_string());
+
+    let grafana_url = if let Some(ref suffix) = dns_suffix {
+        format!("https://grafana.{}", suffix)
+    } else {
+        "Check Tailscale or ingress".to_string()
+    };
+
+    let grafana_info = ServiceInfo::new("Grafana")
+        .with_url(grafana_url)
+        .with_credentials("admin".to_string(), grafana_password);
+
+    println!("{}", grafana_info);
+    services.push(grafana_info);
+
+    // Immich
+    info!("Retrieving Immich info");
+
+    let immich_url = if let Some(ref suffix) = dns_suffix {
+        format!("https://immich.{}", suffix)
+    } else {
+        "Check Tailscale or ingress".to_string()
+    };
+
+    let immich_info = ServiceInfo::new("Immich")
+        .with_url(immich_url);
+
+    println!("{}", immich_info);
+    services.push(immich_info);
+
+    println!("========================================\n");
+    info!("Service information retrieval complete");
+
+    Ok(())
+}
+

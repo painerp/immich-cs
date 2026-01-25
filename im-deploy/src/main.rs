@@ -49,6 +49,8 @@ enum Commands {
     CopyKubeconfig,
     /// Monitor cluster formation and readiness
     Monitor,
+    /// Display service URLs and credentials
+    Info,
 }
 
 struct MainMenuSelector {
@@ -67,6 +69,7 @@ impl MainMenuSelector {
                 ("SSH", "SSH into a cluster server"),
                 ("Copy Kubeconfig", "Copy kubeconfig from the cluster to local directory"),
                 ("Monitor", "Monitor cluster formation and readiness"),
+                ("Info", "Display service URLs and credentials"),
             ],
             state,
         }
@@ -101,6 +104,7 @@ impl MainMenuSelector {
             2 => Commands::Ssh,
             3 => Commands::CopyKubeconfig,
             4 => Commands::Monitor,
+            5 => Commands::Info,
             _ => Commands::Deploy,
         })
     }
@@ -203,6 +207,7 @@ fn main() -> Result<()> {
         Commands::Ssh => commands::cmd_ssh(&config),
         Commands::CopyKubeconfig => commands::cmd_copy_kubeconfig(&config),
         Commands::Monitor => commands::cmd_monitor(&config),
+        Commands::Info => commands::cmd_info(&config),
     };
 
     if let Err(ref e) = result {
