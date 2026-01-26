@@ -307,3 +307,33 @@ variable "tailscale_oauth_client_secret" {
   sensitive   = true
   default     = ""
 }
+
+###############################################################################
+# Cloudflare Tunnel
+###############################################################################
+
+variable "enable_cloudflare_tunnel" {
+  description = "Enable Cloudflare Tunnel for public access"
+  type        = bool
+  default     = false
+}
+
+variable "cloudflare_account_id" {
+  description = "Cloudflare account ID"
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_tunnel_id" {
+  description = "Cloudflare tunnel ID (UUID)"
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_tunnel_secret" {
+  description = "Cloudflare tunnel secret (sensitive)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+

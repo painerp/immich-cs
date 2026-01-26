@@ -93,6 +93,27 @@ tailscale_oauth_client_id = ""
 tailscale_oauth_client_secret = ""
 
 ###############################################################################
+# Cloudflare Tunnel Configuration (Optional)
+###############################################################################
+
+# Enable Cloudflare Tunnel for public internet access to cluster services
+enable_cloudflare_tunnel = false
+
+# Cloudflare Account ID (not sensitive, can be committed)
+# Find this in your Cloudflare dashboard URL: https://one.dash.cloudflare.com/<account-id>/
+cloudflare_account_id = ""  # Example: "bb5031d201f956c338ae9bb052ddfee1"
+
+# Cloudflare Tunnel ID (not sensitive, can be committed)
+# Create a tunnel at: https://one.dash.cloudflare.com/ > Networks > Tunnels
+# The tunnel ID is a UUID shown in the tunnel details
+cloudflare_tunnel_id = ""  # Example: "4c2ab3f8-ac2b-4a70-a8e1-3a00397bdee2"
+
+# Cloudflare Tunnel Secret (SENSITIVE - do not commit!)
+# This is found in the tunnel credentials JSON or the connector installation command
+# Keep this in your local terraform.tfvars file only (gitignored)
+cloudflare_tunnel_secret = ""
+
+###############################################################################
 # Security Configuration
 ###############################################################################
 

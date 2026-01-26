@@ -227,6 +227,67 @@ variable "tailscale_oauth_client_secret" {
 }
 
 ###############################################################################
+# Cloudflare Tunnel Configuration
+###############################################################################
+
+variable "enable_cloudflare_tunnel" {
+  description = "Enable Cloudflare Tunnel for public access to cluster services"
+  type        = bool
+  default     = false
+}
+
+variable "cloudflare_account_id" {
+  description = <<-EOT
+    Cloudflare account ID for the tunnel.
+
+    Find this in the Cloudflare dashboard URL:
+    https://dash.cloudflare.com/<account-id>/ or https://one.dash.cloudflare.com/<account-id>/
+
+    This is not sensitive and can be committed to Git.
+    Required if enable_cloudflare_tunnel is true.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_tunnel_id" {
+  description = <<-EOT
+    Cloudflare Tunnel ID (UUID).
+
+    Create a tunnel in Cloudflare Zero Trust:
+    1. Visit: https://one.dash.cloudflare.com/
+    2. Navigate to Networks > Tunnels
+    3. Click "Create a tunnel"
+    4. Name it (e.g., "immich-tunnel")
+    5. Copy the Tunnel ID (UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+
+    This is not sensitive and can be committed to Git.
+    Required if enable_cloudflare_tunnel is true.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_tunnel_secret" {
+  description = <<-EOT
+    Cloudflare Tunnel secret/credentials.
+
+    This is the sensitive tunnel credentials secret from the tunnel you created.
+    You can find this:
+    - In the tunnel credentials JSON file (download from tunnel settings)
+    - Or from the connector installation command shown when creating the tunnel
+
+    This is SENSITIVE and should NOT be committed to Git.
+    Store this in terraform.tfvars (which is gitignored).
+
+    Required if enable_cloudflare_tunnel is true.
+  EOT
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+###############################################################################
 # OpenStack Cloud Controller Configuration
 ###############################################################################
 
