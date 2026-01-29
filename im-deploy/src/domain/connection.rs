@@ -51,7 +51,7 @@ impl ConnectionStrategy {
     }
 
     pub fn execute_interactive(&self) -> Result<()> {
-        info!("Establishing SSH connection: {:?}", self);
+        debug!("Establishing SSH connection: {:?}", self);
 
         let args = self.build_ssh_args();
         debug!("SSH command: ssh {}", args.join(" "));
@@ -76,7 +76,7 @@ impl ConnectionStrategy {
     }
 
     pub fn execute_command(&self, command: &str) -> Result<std::process::Output> {
-        info!("Executing command over SSH: {}", command);
+        debug!("Executing command over SSH: {}", command);
 
         let mut args = self.build_ssh_args();
         args.push(command.to_string());

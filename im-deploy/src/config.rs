@@ -90,7 +90,7 @@ pub fn find_terraform_binary() -> Result<String> {
         .map(|o| o.status.success())
         .unwrap_or(false)
     {
-        info!("Using tofu binary");
+        debug!("Using tofu binary");
         return Ok("tofu".to_string());
     }
 
@@ -101,7 +101,7 @@ pub fn find_terraform_binary() -> Result<String> {
         .map(|o| o.status.success())
         .unwrap_or(false)
     {
-        info!("Using terraform binary");
+        debug!("Using terraform binary");
         return Ok("terraform".to_string());
     }
 
@@ -109,7 +109,7 @@ pub fn find_terraform_binary() -> Result<String> {
 }
 
 pub fn load_config(dry_run: bool) -> Result<Config> {
-    info!("Loading configuration");
+    debug!("Loading configuration");
 
     let terraform_dir = detect_terraform_dir()?;
     let terraform_bin = find_terraform_binary()?;

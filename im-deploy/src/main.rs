@@ -33,6 +33,10 @@ struct Cli {
     #[arg(long = "dry-run", global = true)]
     dry_run: bool,
 
+    /// Enable debug logging
+    #[arg(short = 'd', long = "debug", global = true)]
+    debug: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -171,14 +175,16 @@ fn run_main_menu() -> Result<Option<Commands>> {
 }
 
 fn main() -> Result<()> {
+    let cli = Cli::parse();
+
     // Initialize tracing with environment filter
-    // Use RUST_LOG env var to control log level, default to info
+    // Use RUST_LOG env var to control log level, or default based on --debug flag
+    let default_level = if cli.debug { "debug" } else { "warn" };
     tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level)))
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let cli = Cli::parse();
 
     if cli.dry_run {
         info!("🌵 DRY RUN MODE - No actual changes will be made");

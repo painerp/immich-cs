@@ -35,7 +35,7 @@ pub fn confirm_action(prompt: &str, default_yes: bool) -> Result<bool> {
 fn ensure_terraform_initialized(terraform_bin: &str, terraform_dir: &PathBuf) -> Result<()> {
     let terraform_state_dir = terraform_dir.join(".terraform");
     if !terraform_state_dir.exists() {
-        info!(".terraform directory not found, running init first...");
+        debug!(".terraform directory not found, running init first...");
         let init_status = Command::new(terraform_bin)
             .args(&["init", "-input=false"])
             .current_dir(terraform_dir)
@@ -52,7 +52,7 @@ fn ensure_terraform_initialized(terraform_bin: &str, terraform_dir: &PathBuf) ->
             ))
             .into());
         }
-        info!("Terraform init completed successfully");
+        debug!("Terraform init completed successfully");
     }
     Ok(())
 }
@@ -485,20 +485,20 @@ pub fn cmd_destroy(config: &Config, auto_confirm: bool) -> Result<()> {
 }
 
 pub fn cmd_ssh(config: &Config) -> Result<()> {
-    info!("Fetching server information");
+    debug!("Fetching server information");
 
     let cloud_providers = extract_cloud_providers(&config.terraform_bin, &config.terraform_dir)?;
 
     // If only one cloud provider, auto-select it
     let selected_provider = if cloud_providers.len() == 1 {
-        info!("Auto-selecting {} (only provider available)", cloud_providers[0].name);
+        debug!("Auto-selecting {} (only provider available)", cloud_providers[0].name);
         cloud_providers.into_iter().next().unwrap()
     } else {
         // Show cloud provider selection
         match run_cloud_provider_selector(cloud_providers)? {
             Some(provider) => provider,
             None => {
-                info!("No cloud provider selected");
+                debug!("No cloud provider selected");
                 return Ok(());
             }
         }
@@ -516,17 +516,17 @@ pub fn cmd_ssh(config: &Config) -> Result<()> {
 
     if let Some(server) = selected {
         let strategy = ConnectionStrategy::from_server(&server, selected_provider.bastion_ip.as_deref())?;
-        info!("Connecting to {} via {:?}", server.name, strategy);
+        debug!("Connecting to {} via {:?}", server.name, strategy);
         strategy.execute_interactive()?;
     } else {
-        info!("No server selected");
+        debug!("No server selected");
     }
 
     Ok(())
 }
 
 pub fn cmd_copy_kubeconfig(config: &Config) -> Result<()> {
-    info!("Fetching cluster information");
+    debug!("Fetching cluster information");
 
     let outputs = get_terraform_outputs(&config.terraform_bin, &config.terraform_dir)?;
     let cloud_providers = extract_cloud_providers(&config.terraform_bin, &config.terraform_dir)?;
@@ -565,7 +565,7 @@ pub fn cmd_copy_kubeconfig(config: &Config) -> Result<()> {
             resource: "k3s-server-0".to_string(),
         })?;
 
-    info!("Downloading kubeconfig from {}", server_0.name);
+    debug!("Downloading kubeconfig from {}", server_0.name);
 
     // Verify Tailscale if needed
     if provider.tailscale_enabled {
@@ -600,14 +600,14 @@ pub fn cmd_copy_kubeconfig(config: &Config) -> Result<()> {
     let output_path = std::env::current_dir()?.join("kubeconfig");
     std::fs::write(&output_path, kubeconfig)?;
 
-    info!("Kubeconfig saved to: {}", output_path.display());
-    info!("To use it, run: export KUBECONFIG={}", output_path.display());
+    println!("✓ Kubeconfig saved to: {}", output_path.display());
+    println!("  To use it, run: export KUBECONFIG={}", output_path.display());
 
     Ok(())
 }
 
 pub fn cmd_monitor(config: &Config) -> Result<()> {
-    info!("Fetching cluster information");
+    debug!("Fetching cluster information");
 
     let outputs = get_terraform_outputs(&config.terraform_bin, &config.terraform_dir)?;
     let cloud_providers = extract_cloud_providers(&config.terraform_bin, &config.terraform_dir)?;
@@ -1104,7 +1104,7 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
 pub fn cmd_info(config: &Config) -> Result<()> {
     use crate::domain::services::{get_k8s_secret, ServiceInfo};
 
-    info!("Fetching cluster information");
+    debug!("Fetching cluster information");
 
     let cloud_providers = extract_cloud_providers(&config.terraform_bin, &config.terraform_dir)?;
 
@@ -1127,7 +1127,7 @@ pub fn cmd_info(config: &Config) -> Result<()> {
             resource: "k3s-server-0".to_string(),
         })?;
 
-    info!("Connecting to {} to retrieve service information", server_0.name);
+    debug!("Connecting to {} to retrieve service information", server_0.name);
 
     let strategy = ConnectionStrategy::from_server(server_0, provider.bastion_ip.as_deref())?;
 
@@ -1137,7 +1137,7 @@ pub fn cmd_info(config: &Config) -> Result<()> {
     let dns_suffix = if provider.tailscale_enabled {
         match tailscale::get_magic_dns_suffix() {
             Ok(suffix) => {
-                info!("Using Tailscale MagicDNS suffix: {}", suffix);
+                debug!("Using Tailscale MagicDNS suffix: {}", suffix);
                 Some(suffix)
             }
             Err(e) => {
@@ -1153,7 +1153,7 @@ pub fn cmd_info(config: &Config) -> Result<()> {
     println!("\n=== Deployed Services Information ===\n");
 
     // ArgoCD
-    info!("Retrieving ArgoCD info");
+    debug!("Retrieving ArgoCD info");
     let argocd_password = get_k8s_secret(&strategy, "argocd-initial-admin-secret", "argocd", "password")
         .unwrap_or_else(|_| "N/A (secret not found)".to_string());
 
@@ -1171,7 +1171,7 @@ pub fn cmd_info(config: &Config) -> Result<()> {
     services.push(argocd_info);
 
     // Longhorn
-    info!("Retrieving Longhorn info");
+    debug!("Retrieving Longhorn info");
     let longhorn_url = if let Some(ref suffix) = dns_suffix {
         format!("https://longhorn.{}", suffix)
     } else {
@@ -1185,7 +1185,7 @@ pub fn cmd_info(config: &Config) -> Result<()> {
     services.push(longhorn_info);
 
     // Prometheus
-    info!("Retrieving Prometheus info");
+    debug!("Retrieving Prometheus info");
     let prometheus_url = if let Some(ref suffix) = dns_suffix {
         format!("https://prometheus.{}", suffix)
     } else {
@@ -1199,7 +1199,7 @@ pub fn cmd_info(config: &Config) -> Result<()> {
     services.push(prometheus_info);
 
     // Grafana
-    info!("Retrieving Grafana info");
+    debug!("Retrieving Grafana info");
     let grafana_password = get_k8s_secret(&strategy, "prometheus-grafana", "prometheus-system", "admin-password")
         .unwrap_or_else(|_| "N/A (secret not found)".to_string());
 
@@ -1217,7 +1217,7 @@ pub fn cmd_info(config: &Config) -> Result<()> {
     services.push(grafana_info);
 
     // Immich
-    info!("Retrieving Immich info");
+    debug!("Retrieving Immich info");
 
     let immich_url = if let Some(ref suffix) = dns_suffix {
         format!("https://immich.{}", suffix)
@@ -1232,7 +1232,7 @@ pub fn cmd_info(config: &Config) -> Result<()> {
     services.push(immich_info);
 
     println!("========================================\n");
-    info!("Service information retrieval complete");
+    debug!("Service information retrieval complete");
 
     Ok(())
 }
