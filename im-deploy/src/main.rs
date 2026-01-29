@@ -1,20 +1,25 @@
-mod config;
+pub mod config;
 mod commands;
+pub mod constants;
+pub mod domain;
+pub mod errors;
 mod openstack;
 mod tailscale;
 mod tui;
 
-use anyhow::Result;
 use clap::{Parser, Subcommand};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use errors::Result;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 use std::io;
+use tracing::{error, info};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[derive(Parser)]
 #[command(name = "im-deploy")]
@@ -23,6 +28,14 @@ struct Cli {
     /// Automatically confirm prompts
     #[arg(short = 'y', long = "yes", global = true)]
     yes: bool,
+
+    /// Dry run mode - show what would be done without making changes
+    #[arg(long = "dry-run", global = true)]
+    dry_run: bool,
+
+    /// Enable debug logging
+    #[arg(short = 'd', long = "debug", global = true)]
+    debug: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -40,6 +53,8 @@ enum Commands {
     CopyKubeconfig,
     /// Monitor cluster formation and readiness
     Monitor,
+    /// Display service URLs and credentials
+    Info,
 }
 
 struct MainMenuSelector {
@@ -58,6 +73,7 @@ impl MainMenuSelector {
                 ("SSH", "SSH into a cluster server"),
                 ("Copy Kubeconfig", "Copy kubeconfig from the cluster to local directory"),
                 ("Monitor", "Monitor cluster formation and readiness"),
+                ("Info", "Display service URLs and credentials"),
             ],
             state,
         }
@@ -92,6 +108,7 @@ impl MainMenuSelector {
             2 => Commands::Ssh,
             3 => Commands::CopyKubeconfig,
             4 => Commands::Monitor,
+            5 => Commands::Info,
             _ => Commands::Deploy,
         })
     }
@@ -160,6 +177,19 @@ fn run_main_menu() -> Result<Option<Commands>> {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Initialize tracing with environment filter
+    // Use RUST_LOG env var to control log level, or default based on --debug flag
+    let default_level = if cli.debug { "debug" } else { "warn" };
+    tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level)))
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+
+    if cli.dry_run {
+        info!("🌵 DRY RUN MODE - No actual changes will be made");
+    }
+
     let command = match cli.command {
         Some(cmd) => cmd,
         None => {
@@ -167,7 +197,7 @@ fn main() -> Result<()> {
             match run_main_menu()? {
                 Some(cmd) => cmd,
                 None => {
-                    println!("Exiting.");
+                    info!("Exiting");
                     return Ok(());
                 }
             }
@@ -175,14 +205,21 @@ fn main() -> Result<()> {
     };
 
     // Load configuration
-    let config = config::load_config()?;
+    let config = config::load_config(cli.dry_run)?;
 
-    match command {
+    let result = match command {
         Commands::Deploy => commands::cmd_deploy(&config, cli.yes),
         Commands::Destroy => commands::cmd_destroy(&config, cli.yes),
         Commands::Ssh => commands::cmd_ssh(&config),
         Commands::CopyKubeconfig => commands::cmd_copy_kubeconfig(&config),
         Commands::Monitor => commands::cmd_monitor(&config),
+        Commands::Info => commands::cmd_info(&config),
+    };
+
+    if let Err(ref e) = result {
+        error!("Command failed: {}", e);
     }
+
+    result
 }
 

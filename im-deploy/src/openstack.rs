@@ -3,11 +3,13 @@ use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::fs;
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
     token: Token,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct Token {
     #[serde(rename = "catalog")]
@@ -15,6 +17,7 @@ struct Token {
     project: Option<ProjectInfo>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct CatalogEntry {
     #[serde(rename = "type")]
@@ -22,6 +25,7 @@ struct CatalogEntry {
     endpoints: Vec<Endpoint>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct Endpoint {
     url: String,
@@ -29,33 +33,39 @@ struct Endpoint {
     region: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct ProjectInfo {
     id: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 struct AuthRequest {
     auth: Auth,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 struct Auth {
     identity: Identity,
     scope: Scope,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 struct Identity {
     methods: Vec<String>,
     password: Password,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 struct Password {
     user: User,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 struct User {
     name: String,
@@ -63,22 +73,26 @@ struct User {
     password: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 struct Domain {
     name: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 struct Scope {
     project: Project,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 struct Project {
     name: String,
     domain: Domain,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct FloatingIP {
     id: String,
@@ -87,11 +101,13 @@ struct FloatingIP {
     port_id: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct FloatingIPsResponse {
     floatingips: Vec<FloatingIP>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct Port {
     id: String,
@@ -100,11 +116,13 @@ struct Port {
     network_id: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct PortsResponse {
     ports: Vec<Port>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct LoadBalancer {
     id: String,
@@ -113,11 +131,13 @@ struct LoadBalancer {
     provisioning_status: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct LoadBalancersResponse {
     loadbalancers: Vec<LoadBalancer>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct Volume {
     pub id: String,
@@ -126,11 +146,13 @@ pub struct Volume {
     pub status: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct VolumesResponse {
     volumes: Vec<Volume>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct SecurityGroup {
     id: String,
@@ -138,6 +160,7 @@ struct SecurityGroup {
     description: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct SecurityGroupsResponse {
     security_groups: Vec<SecurityGroup>,
@@ -150,6 +173,7 @@ pub struct OpenStackClient {
     octavia_endpoint: String
 }
 
+#[allow(dead_code)]
 impl OpenStackClient {
 
     pub fn new(
@@ -228,7 +252,7 @@ impl OpenStackClient {
             .context("Invalid X-Subject-Token header")?
             .to_string();
 
-        let token_data: TokenResponse = response
+        let _token_data: TokenResponse = response
             .json()
             .context("Failed to parse authentication response")?;
 

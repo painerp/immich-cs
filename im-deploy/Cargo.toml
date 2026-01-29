@@ -3,12 +3,27 @@ name = "im-deploy"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "im_deploy"
+path = "src/lib.rs"
+
+[[bin]]
+name = "im-deploy"
+path = "src/main.rs"
+
 [dependencies]
-anyhow = "1.0.99"
+anyhow = "1.0.100"
 crossterm = "0.29.0"
-ratatui = "0.29.0"
-serde_json = "1.0.143"
-clap = { version = "4.5.47", features = ["derive"] }
-reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"] }
-toml = "0.8.23"
+ratatui = "0.30.0"
+serde_json = "1.0.149"
+clap = { version = "4.5.54", features = ["derive"] }
+reqwest = { version = "0.12.28", features = ["blocking", "json", "rustls-tls"] }
+toml = "0.9.11"
 serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.18"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3.24.0"
+serial_test = "3.3.1"

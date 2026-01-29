@@ -1,0 +1,58 @@
+{
+  "openstack_cluster": {
+    "value": {
+      "cluster_name": "test-cluster",
+      "network_id": "net-12345",
+      "bastion_ip": "1.2.3.4",
+      "loadbalancer_ip": "5.6.7.8",
+      "server_ips": [
+        "10.0.1.10",
+        "10.0.1.11",
+        "10.0.1.12"
+      ],
+      "agent_ips": [
+        "10.0.1.20",
+        "10.0.1.21"
+      ]
+    }
+  },
+  "tailscale_enabled": {
+    "value": true
+  },
+  "tailscale_hostnames": {
+    "value": {
+      "openstack_servers": [
+        "k3s-server-0.tailnet.ts.net",
+        "k3s-server-1.tailnet.ts.net",
+        "k3s-server-2.tailnet.ts.net"
+      ],
+      "openstack_agents": [
+        "k3s-agent-0.tailnet.ts.net",
+        "k3s-agent-1.tailnet.ts.net"
+      ]
+    }
+  },
+  "primary_api_endpoint": {
+    "value": "https://5.6.7.8:6443"
+  },
+  "all_server_ips": {
+    "value": [
+      "10.0.1.10",
+      "10.0.1.11",
+      "10.0.1.12"
+    ]
+  },
+  "all_agent_ips": {
+    "value": [
+      "10.0.1.20",
+      "10.0.1.21"
+    ]
+  },
+  "enable_nvidia_gpu_operator": {
+    "value": true
+  },
+  "enable_argocd": {
+    "value": true
+  }
+}
+

@@ -1,4 +1,5 @@
-use anyhow::Result;
+use crate::domain::cluster::{CloudProvider, ServerInfo};
+use crate::errors::Result;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -8,22 +9,6 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 use std::io;
-
-#[derive(Debug, Clone)]
-pub struct ServerInfo {
-    pub name: String,
-    pub ip: String,
-    pub cloud_provider: String,
-    pub tailscale_hostname: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CloudProvider {
-    pub name: String,
-    pub bastion_ip: Option<String>,
-    pub tailscale_enabled: bool,
-    pub servers: Vec<ServerInfo>,
-}
 
 pub struct ServerSelector {
     servers: Vec<ServerInfo>,
@@ -191,8 +176,8 @@ pub fn run_cloud_provider_selector(providers: Vec<CloudProvider>) -> Result<Opti
                 .providers
                 .iter()
                 .map(|provider| {
-                    let server_count = provider.servers.iter().filter(|s| s.name.contains("server")).count();
-                    let agent_count = provider.servers.iter().filter(|s| s.name.contains("agent")).count();
+                    let server_count = provider.server_count();
+                    let agent_count = provider.agent_count();
                     ListItem::new(format!(
                         "{} ({} servers, {} agents)",
                         provider.name, server_count, agent_count
