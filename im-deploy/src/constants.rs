@@ -7,8 +7,6 @@ pub mod ssh {
 
 /// Network timeouts and retry settings
 pub mod network {
-    use std::time::Duration;
-
     pub const HTTP_TIMEOUT_SECS: u64 = 30;
     pub const RETRY_MAX_ATTEMPTS: u32 = 3;
     pub const RETRY_INITIAL_DELAY_MS: u64 = 1000;
@@ -18,8 +16,6 @@ pub mod network {
 
 /// OpenStack API constants
 pub mod openstack {
-    use std::time::Duration;
-
     pub const DEFAULT_AUTH_URL: &str = "https://private-cloud.informatik.hs-fulda.de:5000/v3";
     pub const DEFAULT_REGION: &str = "RegionOne";
     pub const DEFAULT_DOMAIN: &str = "Default";
@@ -34,8 +30,6 @@ pub mod kubernetes {
 
 /// Cluster monitoring constants
 pub mod monitoring {
-    use std::time::Duration;
-
     pub const CHECK_INTERVAL_SECS: u64 = 10;
     pub const NODE_READY_TIMEOUT_SECS: u64 = 600;
 }

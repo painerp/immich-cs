@@ -2,7 +2,7 @@ use crate::constants::ssh;
 use crate::domain::cluster::ServerInfo;
 use crate::errors::{Result, SshError};
 use std::process::{Command, Stdio};
-use tracing::{debug, info};
+use tracing::debug;
 
 #[derive(Debug, Clone)]
 pub enum ConnectionStrategy {

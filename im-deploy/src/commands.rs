@@ -5,7 +5,6 @@ use crate::errors::{Result, TerraformError};
 use crate::openstack::OpenStackClient;
 use crate::tailscale;
 use crate::tui::{run_cloud_provider_selector, run_server_selector};
-use indicatif::{ProgressBar, ProgressStyle};
 use std::{
     io::{self, Write},
     path::PathBuf,
@@ -70,7 +69,7 @@ fn run_terraform_command(terraform_bin: &str, terraform_dir: &PathBuf, args: &[&
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .status()
-        .map_err(|e| TerraformError::CommandFailed {
+        .map_err(|_e| TerraformError::CommandFailed {
             command: command_str.clone(),
             code: None,
         })?;
@@ -691,12 +690,10 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
 
     let start_time = Instant::now();
     let mut check_count = 0;
+    #[allow(unused_assignments)]
     let mut nodes_ready_time: Option<Duration> = None;
-    let mut gpu_install_start: Option<Instant> = None;
     let mut gpu_install_complete: Option<Duration> = None;
-    let mut argocd_install_start: Option<Instant> = None;
     let mut argocd_install_complete: Option<Duration> = None;
-    let mut argocd_tailscale_start: Option<Instant> = None;
     let mut argocd_tailscale_complete: Option<Duration> = None;
 
     // Phase 1: Wait for all nodes to be Ready
@@ -763,7 +760,7 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
     // Phase 2: Monitor GPU Operator installation (if enabled)
     if gpu_enabled {
         println!("\n=== Monitoring GPU Operator Installation ===\n");
-        gpu_install_start = Some(Instant::now());
+        let gpu_install_start = Some(Instant::now());
 
         loop {
             thread::sleep(Duration::from_secs(10));
@@ -860,7 +857,7 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
     // Phase 3: Monitor ArgoCD installation (if enabled)
     if argocd_enabled {
         println!("\n=== Monitoring ArgoCD Installation ===\n");
-        argocd_install_start = Some(Instant::now());
+        let argocd_install_start = Some(Instant::now());
 
         loop {
             thread::sleep(Duration::from_secs(10));
@@ -957,7 +954,7 @@ pub fn cmd_monitor(config: &Config) -> Result<()> {
     // Phase 4: Monitor Tailscale ArgoCD Serve setup (if enabled)
     if argocd_enabled {
         println!("\n=== Monitoring Tailscale ArgoCD Serve Setup ===\n");
-        argocd_tailscale_start = Some(Instant::now());
+        let argocd_tailscale_start = Some(Instant::now());
 
         loop {
             thread::sleep(Duration::from_secs(10));

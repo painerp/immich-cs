@@ -5,6 +5,7 @@ use serde::Deserialize;
 use std::process::Command;
 use tracing::{debug, info, warn};
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Device {
@@ -17,6 +18,7 @@ struct Device {
     tags: Vec<String>,
 }
 
+#[allow(dead_code)]
 impl Device {
     fn display_name(&self) -> &str {
         if !self.name.is_empty() {
@@ -29,11 +31,13 @@ impl Device {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct DevicesResponse {
     devices: Vec<Device>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[allow(non_snake_case)]
 struct TailscaleStatus {
@@ -45,6 +49,7 @@ struct TailscaleStatus {
     magic_dns_suffix: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[allow(non_snake_case)]
 struct CurrentTailnet {
@@ -52,6 +57,7 @@ struct CurrentTailnet {
     name: String,
 }
 
+#[allow(dead_code)]
 pub fn cleanup_devices_by_tag(api_key: &str, tailnet: &str, cluster_tag: &str) -> Result<()> {
     info!("Searching for Tailscale devices with tag: {}", cluster_tag);
 
@@ -141,6 +147,7 @@ pub fn cleanup_devices_by_tag(api_key: &str, tailnet: &str, cluster_tag: &str) -
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn verify_tailscale_connection(expected_tailnet: Option<&str>) -> Result<()> {
     debug!("Verifying Tailscale connection");
 
@@ -208,6 +215,7 @@ pub fn verify_tailscale_connection(expected_tailnet: Option<&str>) -> Result<()>
 
 /// Get the Tailscale MagicDNS suffix for URL construction
 /// Returns an error if Tailscale is not running or MagicDNS is not available
+#[allow(dead_code)]
 pub fn get_magic_dns_suffix() -> Result<String> {
     debug!("Retrieving Tailscale MagicDNS suffix");
 
@@ -244,6 +252,7 @@ pub fn get_magic_dns_suffix() -> Result<String> {
 }
 
 /// Get Tailscale serve URL for a service hostname
+#[allow(dead_code)]
 pub fn get_tailscale_url(hostname: &str) -> Result<String> {
     let dns_suffix = get_magic_dns_suffix()?;
     Ok(format!("https://{}.{}", hostname, dns_suffix))
@@ -251,6 +260,7 @@ pub fn get_tailscale_url(hostname: &str) -> Result<String> {
 
 /// Get all Tailscale hostnames from kubernetes services
 /// This queries services with tailscale.com/hostname annotation
+#[allow(dead_code)]
 pub fn get_tailscale_hostnames_from_k8s(
     connection: &crate::domain::connection::ConnectionStrategy,
 ) -> Result<Vec<(String, String)>> {
