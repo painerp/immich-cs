@@ -290,3 +290,50 @@ variable "argocd_repo_branch" {
   default     = "main"
 }
 
+###############################################################################
+# Tailscale OAuth Secret Configuration
+###############################################################################
+
+variable "tailscale_oauth_client_id" {
+  description = "Tailscale OAuth client ID for in-cluster Helm chart (separate from ephemeral node keys)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "tailscale_oauth_client_secret" {
+  description = "Tailscale OAuth client secret for in-cluster Helm chart (separate from ephemeral node keys)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+###############################################################################
+# Cloudflare Tunnel
+###############################################################################
+
+variable "enable_cloudflare_tunnel" {
+  description = "Enable Cloudflare Tunnel for public access"
+  type        = bool
+  default     = false
+}
+
+variable "cloudflare_account_id" {
+  description = "Cloudflare account ID"
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_tunnel_id" {
+  description = "Cloudflare tunnel ID (UUID)"
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_tunnel_secret" {
+  description = "Cloudflare tunnel secret (sensitive)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+

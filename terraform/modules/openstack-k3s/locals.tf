@@ -22,6 +22,10 @@ locals {
   # Tailscale configuration
   tailscale_prefix = var.tailscale_hostname_prefix != "" ? var.tailscale_hostname_prefix : var.cluster_name
 
+  # Tailscale OAuth credentials (base64 encoded for Secret)
+  tailscale_oauth_client_id_b64     = base64encode(var.tailscale_oauth_client_id)
+  tailscale_oauth_client_secret_b64 = base64encode(var.tailscale_oauth_client_secret)
+
   # CSI/Operator replica count - use min of server count and 3 for HA controllers
   operator_replica = min(var.server_count, 3)
 

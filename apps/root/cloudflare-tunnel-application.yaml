@@ -1,0 +1,42 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudflare-tunnel
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://cloudflare.github.io/helm-charts
+    chart: cloudflare-tunnel
+    targetRevision: 0.3.2
+    helm:
+      valuesObject:
+        cloudflare:
+          account: "bb5031d201f956c338ae9bb052ddfee1"
+          tunnelName: immich-tunnel
+          tunnelId: "4c2ab3f8-ac2b-4a70-a8e1-3a00397bdee2"
+          secretName: cloudflare-tunnel-credentials
+          ingress:
+            - hostname: im-cs.xyz
+              service: http://immich.immich.svc.cluster.local:80
+
+        replicaCount: 3
+
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cloudflare
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

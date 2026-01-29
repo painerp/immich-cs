@@ -191,6 +191,102 @@ variable "tailscale_ip_update_interval" {
   }
 }
 
+variable "tailscale_oauth_client_id" {
+  description = <<-EOT
+    Tailscale OAuth client ID for the Kubernetes in-cluster Helm chart deployment.
+    
+    This is SEPARATE from tailscale_api_key and is used by the Tailscale Helm chart
+    running inside the cluster to authenticate with Tailscale.
+
+    Create an OAuth client in the Tailscale Admin Console:
+    1. Visit: https://login.tailscale.com/admin/settings/oauth
+    2. Click "Generate OAuth Client"
+    3. Add description: "Kubernetes in-cluster OAuth"
+    4. Required scopes: (depends on Tailscale Helm chart requirements)
+    5. Copy the client ID
+
+    This will be stored as a Kubernetes Secret in the tailscale namespace.
+  EOT
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "tailscale_oauth_client_secret" {
+  description = <<-EOT
+    Tailscale OAuth client secret for the Kubernetes in-cluster Helm chart deployment.
+    
+    This is SEPARATE from tailscale_api_key and is used by the Tailscale Helm chart
+    running inside the cluster to authenticate with Tailscale.
+
+    This will be stored as a Kubernetes Secret in the tailscale namespace.
+  EOT
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+###############################################################################
+# Cloudflare Tunnel Configuration
+###############################################################################
+
+variable "enable_cloudflare_tunnel" {
+  description = "Enable Cloudflare Tunnel for public access to cluster services"
+  type        = bool
+  default     = false
+}
+
+variable "cloudflare_account_id" {
+  description = <<-EOT
+    Cloudflare account ID for the tunnel.
+
+    Find this in the Cloudflare dashboard URL:
+    https://dash.cloudflare.com/<account-id>/ or https://one.dash.cloudflare.com/<account-id>/
+
+    This is not sensitive and can be committed to Git.
+    Required if enable_cloudflare_tunnel is true.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_tunnel_id" {
+  description = <<-EOT
+    Cloudflare Tunnel ID (UUID).
+
+    Create a tunnel in Cloudflare Zero Trust:
+    1. Visit: https://one.dash.cloudflare.com/
+    2. Navigate to Networks > Tunnels
+    3. Click "Create a tunnel"
+    4. Name it (e.g., "immich-tunnel")
+    5. Copy the Tunnel ID (UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+
+    This is not sensitive and can be committed to Git.
+    Required if enable_cloudflare_tunnel is true.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_tunnel_secret" {
+  description = <<-EOT
+    Cloudflare Tunnel secret/credentials.
+
+    This is the sensitive tunnel credentials secret from the tunnel you created.
+    You can find this:
+    - In the tunnel credentials JSON file (download from tunnel settings)
+    - Or from the connector installation command shown when creating the tunnel
+
+    This is SENSITIVE and should NOT be committed to Git.
+    Store this in terraform.tfvars (which is gitignored).
+
+    Required if enable_cloudflare_tunnel is true.
+  EOT
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 ###############################################################################
 # OpenStack Cloud Controller Configuration
 ###############################################################################

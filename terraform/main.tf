@@ -62,6 +62,14 @@ module "openstack_k3s" {
   tailscale_hostname_prefix    = var.tailscale_hostname_prefix
   tailscale_key_expiry         = var.tailscale_key_expiry
   tailscale_ip_update_interval = var.tailscale_ip_update_interval
+  tailscale_oauth_client_id     = var.tailscale_oauth_client_id
+  tailscale_oauth_client_secret = var.tailscale_oauth_client_secret
+
+  # Cloudflare Tunnel
+  enable_cloudflare_tunnel  = var.enable_cloudflare_tunnel
+  cloudflare_account_id     = var.cloudflare_account_id
+  cloudflare_tunnel_id      = var.cloudflare_tunnel_id
+  cloudflare_tunnel_secret  = var.cloudflare_tunnel_secret
 
   # Longhorn distributed storage
   enable_longhorn             = var.enable_longhorn
