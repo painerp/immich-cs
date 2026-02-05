@@ -1,0 +1,31 @@
+{
+  "openstack_cluster": {
+    "value": {
+      "cluster_name": "no-tailscale-cluster",
+      "network_id": "net-67890",
+      "bastion_ip": "9.8.7.6",
+      "loadbalancer_ip": "5.4.3.2",
+      "server_ips": ["10.0.2.10"],
+      "agent_ips": ["10.0.2.20"]
+    }
+  },
+  "tailscale_enabled": {
+    "value": false
+  },
+  "primary_api_endpoint": {
+    "value": "https://5.4.3.2:6443"
+  },
+  "all_server_ips": {
+    "value": ["10.0.2.10"]
+  },
+  "all_agent_ips": {
+    "value": ["10.0.2.20"]
+  },
+  "enable_nvidia_gpu_operator": {
+    "value": false
+  },
+  "enable_argocd": {
+    "value": false
+  }
+}
+
